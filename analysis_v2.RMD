@@ -1,0 +1,1819 @@
+---
+title: "FORMBLOOM Sampling Campaign at Conestogo Lake"
+subtitle: "2017 Results summary for the Grand River Conservation Authority"
+output: 
+  pdf_document:
+    latex_engine: xelatex
+    citation_package: natbib
+geometry: left = 2cm, right = 2cm, top = 2cm, bottom = 2cm
+fontsize: 12pt
+mainfont: HelveticaNeue Light
+bibliography: reportcitations
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r, include = F}
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE, 
+                      fig.height = 5.5)
+
+#, fig.pos = 'H'
+#results = "hide"
+
+# libraries
+library(tidyverse)
+library(akima)
+library(lubridate)
+library(padr)
+library(gridExtra)
+library(pander)
+library(RCurl)
+library(MBA)
+library(reshape)
+library(viridis)
+library(scales)
+library(cowplot)
+library(nlme)
+library(lemon)
+library('vegan'); library(ade4)
+
+
+# Plotting theme
+library(extrafont)
+font_import()
+#loadfonts(device="win")
+
+# load functions
+source("../database_Conestogo/src/themeformatting.R")
+source("../database_Conestogo/src/conestogo.R")
+
+# set theme
+theme_set(theme_std(base_family = "", base_size = 11))
+#ggplot(mtcars, aes(x = cyl, y =mpg)) + geom_point() + theme_std()
+# tables shoud have decimal alignment
+```
+
+\vspace*{5cm}
+M.L. Larsen^1^, H. Baulch^2^, S. Schiff^3^,Dana F. Simon^4^, Sesbastien Sauve^4^, J. Venkiteswaran^1^
+
+\vspace*{5cm}
+^1^Department of Geography and Environmental Studies, Wilfrid Laurier University
+^2^School of Environment and Sustainability, Global Institute for Water Security, University of Saskatchewan 
+^3^Department of Earth and Environmental Sciences, University of Waterloo 
+^4^Department of Chemistry, Universite de Montreal
+
+\vspace*{3cm}
+Citation: 
+
+\newpage
+\listoffigures
+\newpage
+\listoftables
+\newpage
+
+## Objectives
+
+## Report Analysis
+
+```{r Versions}
+cap.text = paste("This report was produced using", R.version.string,"and the following packages:")
+
+```
+
+\newpage
+
+
+
+# Data analysis and Results
+## 2017 flood event
+
+<figureS1>
+<consider reworking with map graphic>
+```{r GRCADataScrapeFlow}
+# Get flow rates from Moorefield and Drayton
+myfile <- getURL('https://waterdata.grandriver.ca/KiWIS/KiWIS?service=kisters&type=queryServices&request=getTimeseriesValues&datasource=0&format=csv&ts_id=8629042&from=2003-01-01&to=2018-11-08&timezone=GMT', 
+                 ssl.verifyhost=FALSE, ssl.verifypeer=FALSE)
+drayton.flow <- read.csv(textConnection(myfile), header=T, sep = ";")
+
+drayton.flow <- drayton.flow[3:nrow(drayton.flow),]
+colnames(drayton.flow) <- c("timestamp","value")
+
+drayton.flow.clean <- drayton.flow %>% 
+  mutate(timestamp = as.character(timestamp),
+         timestamp = gsub("Z", "", timestamp),
+         timestamp = gsub("T"," ", timestamp),
+         timestamp = as.POSIXct(timestamp, tz = "UTC"),
+         timestamp = format(timestamp, tz = "Etc/GMT+4", usetz = FALSE),
+         value = as.numeric(as.character(value))) %>% 
+  separate(timestamp, into = c("date","time"), sep = " ", remove = FALSE) %>%
+  #filter(date>="2018-03-12", date <"2017-11-5") %>%
+  mutate(date = as.Date(date, format = "%Y-%m-%d"))
+
+# moorefield
+myfile <- getURL('https://waterdata.grandriver.ca/KiWIS/KiWIS?service=kisters&type=queryServices&request=getTimeseriesValues&datasource=0&format=csv&ts_id=8803042&from=2017-03-12&to=2017-08-30&timezone=GMT', 
+                 ssl.verifyhost=FALSE, ssl.verifypeer=FALSE)
+moorefield.flow <- read.csv(textConnection(myfile), header=T, sep = ";")
+
+moorefield.flow <- moorefield.flow[3:nrow(moorefield.flow),]
+colnames(moorefield.flow) <- c("timestamp","value")
+
+moorefield.flow.clean <- moorefield.flow %>% 
+  mutate(timestamp = as.character(timestamp),
+         timestamp = gsub("Z", "", timestamp),
+         timestamp = gsub("T"," ", timestamp),
+         timestamp = as.POSIXct(timestamp, tz = "UTC"),
+         timestamp = format(timestamp, tz = "Etc/GMT+4", usetz = FALSE),
+         value = as.numeric(as.character(value))) %>% 
+  separate(timestamp, into = c("date","time"), sep = " ", remove = FALSE) %>%
+  #filter(date>="2018-03-12", date <"2017-11-5") %>%
+  mutate(date = as.Date(date, format = "%Y-%m-%d"))
+
+# merge data frame
+flow.merge <- drayton.flow.clean %>%
+  left_join(moorefield.flow.clean, by = c("timestamp","date","time")) %>%
+  filter(date >= as.Date("2017-05-01"), date <=as.Date("2017-09-01")) %>%
+  mutate(sum.flow = value.x + value.y) %>%
+  group_by(date) %>%
+  mutate(mean.daily.flow = mean(sum.flow, na.rm = T), sd = sd(sum.flow, na.rm = T))
+```
+
+```{r flowrateplot}
+
+flow.rates <- ggplot(data = flow.merge %>%
+             filter(date >= as.Date("2017-06-01"),
+                    date <= as.Date("2017-08-17")), 
+       aes(x = date, y = mean.daily.flow)) + 
+  geom_rect(aes(xmin = as.Date("2017-06-22"), xmax = as.Date("2017-06-24"), 
+                ymin = -Inf, ymax = Inf), fill = "grey90") +
+  geom_ribbon(aes(ymin = mean.daily.flow-sd, ymax = mean.daily.flow+sd), fill = "grey55")+
+  geom_line(col = "black") +
+  geom_hline(yintercept = 0.1, col ="red") +
+  labs(x = "", y =  expression(paste("Mean daily\n flow rate (m"^3,")")))+
+  theme_std()
+#summary(flow.merge %>% filter(date >= as.Date("2017-06-21"), date <= as.Date("2017-08-17")))
+
+ggsave(filename = "./supporting-files/fig1b_flow.pdf",
+      plot = flow.rates, device = "pdf",
+      dpi = 500, units = "in", width = 2.5, height = 1.75, scale = 1.4)
+```
+
+```{r GRCADataScrapeArthurPrecip}
+
+myfile <- getURL('https://waterdata.grandriver.ca/KiWIS/KiWIS?service=kisters&type=queryServices&request=getTimeseriesValues&datasource=0&format=csv&ts_id=12460042&from=2003-01-01&to=2018-11-08&timezone=GMT', 
+                 ssl.verifyhost=FALSE, ssl.verifypeer=FALSE)
+arthur.precip <- read.csv(textConnection(myfile), header=T, sep = ";")
+
+arthur.precip <- arthur.precip[3:nrow(arthur.precip),]
+colnames(arthur.precip) <- c("timestamp","value")
+
+arthur.precip.clean <- arthur.precip %>% 
+  mutate(timestamp = as.character(timestamp),
+         timestamp = gsub("Z", "", timestamp),
+         timestamp = gsub("T"," ", timestamp),
+         #timestamp = as.POSIXct(timestamp, tz = "UTC"),
+         timestamp = format(timestamp, tz = "Etc/GMT+4", usetz = FALSE),
+         value = as.numeric(as.character(value))) %>% 
+  separate(timestamp, into = c("date","time"), sep = " ", remove = FALSE) %>%
+  #filter(date>="2018-03-12", date <"2017-11-5") %>%
+  mutate(date = as.Date(date, format = "%Y-%m-%d"),
+         year = format(date, "%Y"), month = format(date, "%b"), 
+         mo.day = format(date, "%m%d"),
+         DOY = yday(date),
+         period =ifelse(mo.day >="0215" & mo.day < "0501","springfill",
+                        ifelse(mo.day >= "0501" & mo.day <"0601","mayfill",
+                               ifelse(mo.day>= "0601", "summerdraw","other"))))
+
+
+arthur.precip.clean.24hr.totals <- arthur.precip.clean %>%
+  group_by(year, month, mo.day, DOY, date) %>%
+  summarize(daily.total.mm = sum(value, na.rm = TRUE)) %>%
+  mutate(period =ifelse(mo.day >="0215" & mo.day < "0501","springfill",
+                        ifelse(mo.day >= "0501" & mo.day <"0601","mayfill",
+                               ifelse(mo.day>= "0601", "summerdraw","other"))))
+arthur.precip.clean.24hr.totals <- as.data.frame(arthur.precip.clean.24hr.totals)
+```
+
+```{r arthurprecipplot}
+arthur.precip.p <- ggplot(data = arthur.precip.clean.24hr.totals %>%
+             filter(date >= as.Date("2017-06-01"),
+                    date <= as.Date("2017-08-17")), 
+       aes(x = date, y = daily.total.mm)) + 
+  geom_rect(aes(xmin = as.Date("2017-06-22"), xmax = as.Date("2017-06-24"), 
+                ymin = -Inf, ymax = Inf), fill = "grey90") +
+  geom_line() +
+  labs(x = "", y = "Total daily\n precipitation (mm)") + theme_std()
+
+ggsave(filename = "./supporting-files/fig1a_precip.pdf",
+      plot = arthur.precip.p, device = "pdf",
+      dpi = 500, units = "in", width = 2.5, height = 1.75, scale = 1.4)
+```
+
+```{r residencetimeplot}
+res.dat <- read.csv("../formbloom_conestogo_2017EDA/data/reservoirhistorical.csv", header = T)
+
+res.dat <- res.dat %>%
+  mutate(date = as.Date(date)) %>%
+  filter(date >= as.Date("2017-06-01"), date <= as.Date("2017-08-17"))
+
+res.time <- ggplot(data = res.dat, 
+                   aes(x = date, y = res.time)) + 
+  geom_rect(aes(xmin = as.Date("2017-06-22"), xmax = as.Date("2017-06-24"), 
+                ymin = -Inf, ymax = Inf), fill = "grey90") +
+  geom_line() +
+  labs(y = "Residence time\n (d)", x= "") + theme_std() 
+
+ggsave(filename = "./supporting-files/fig1c_restime.pdf",
+      plot = res.time, device = "pdf",
+      dpi = 500, units = "in", width = 2.5, height = 1.75, scale = 1.4)
+
+```
+
+```{r storagevolumeplot}
+
+storage <- ggplot(data = res.dat, 
+                   aes(x = date, y = storage.10e6.m3_mean)) +
+  geom_rect(aes(xmin = as.Date("2017-06-22"), xmax = as.Date("2017-06-24"), 
+                ymin = -Inf, ymax = Inf), fill = "grey90") +
+  geom_ribbon(aes(ymin = storage.10e6.m3_mean - storage.10e6.m3_sd, 
+                  ymax = storage.10e6.m3_mean + storage.10e6.m3_sd), fill = "grey55") +
+  geom_line() + 
+  scale_y_continuous(breaks = c(40000,50000,60000), labels = comma) +
+  labs(#title = "2017 Mean daily reservoir storage volume",
+       caption = "Source: GRCA, KIWIS Online Data Portal",
+       x = "", 
+       y = expression(paste("Mean daily\n storage volume (Mm"^3,")")))+ theme_std() 
+
+ggsave(filename = "./supporting-files/fig1d_storage.pdf",
+      plot = storage, device = "pdf",
+      dpi = 500, units = "in", width = 2.5, height = 1.75, scale = 1.4)
+
+```
+
+```{r resdynamicsplot, fig.cap="Upper Conestogo watershed hydrology during the 2017 sampling campaign. (a) Total daily precipitation (mm) as measured in Arthur, ON, (b) 24-hr mean flow rate from the Moorefield and Drayton flow gauges on the Conestogo River, (c) reservoir residence time, (d) 24-hr mean reservoir storage volume. A severe rainfall event in the Upper Conestogo watershed on 22-24 Jun 2017 (grey horizontal bar) altered several hydrological metrics in the reservoir. Grey ribbons in b and d represent standard deviation. \\label{resdynamics}"}
+
+p <- plot_grid(arthur.precip.p, flow.rates, res.time, storage, ncol=1, align="vh")
+
+print(p)
+ggsave(filename = "./supporting-files/fig_reservoirdynamics.tiff",
+      plot = p, device = "tiff",
+      dpi = 500, units = "in", width = 2.5, height = 6, scale = 1.6)
+
+```
+
+```{r, eval = F}
+as.data.frame(flow.merge %>% filter(date>=as.Date("2017-06-21"),date<=as.Date("2017-06-25")))
+res.dat %>% filter(date>=as.Date("2017-06-21"),date<=as.Date("2017-06-25"))
+```
+
+<figureS2>
+```{r loadChemData}
+chem.dat <- read.csv("../database_Conestogo/clean_data/chemistries/20181107_con_chemistry_profiles.csv", header = T) %>%
+  mutate(Date = as.Date(Date, format = "%y-%m-%d"))
+
+chem.dat.merged <- chem.dat %>%  mutate(DOY = yday(Date))
+
+chem.dat.2017 <- chem.dat.merged %>%
+  filter(Date <= as.Date("2017-12-31")) %>%
+  select(Site:Chl.a,DOY)
+
+colnames(chem.dat.2017) <- c(colnames(chem.dat.2017)[1:18], "DIC.ppm","DIC.13C","DOC",
+                             "DOC.13C","pCO2","TDP","SRP","TP", colnames(chem.dat.2017)[27:29])
+```
+
+```{r flooddataframes}
+flood.dat.diff <- chem.dat.2017 %>% 
+  filter(Date >= "2017-06-21", Date <="2017-07-10", Site == "clc") %>% 
+  select(Date:TDN,DOC,TDP:TP) %>%
+  gather(Fe:TP, key = parameter, value = value) %>%
+  spread(Date, value) 
+
+colnames(flood.dat.diff) <- c("Depth","parameter","pre","post")
+
+flood.dat.diff <- flood.dat.diff %>%
+  mutate(Depth = as.factor(Depth),
+         parameter = as.factor(parameter),
+         post = as.numeric(post),
+         pre = as.numeric(pre),
+         muldif = post/pre,
+         concdiff = post-pre,
+         percdiff = ((post - pre)/pre)*100)
+
+```
+
+```{r percfloodchanges, fig.cap="Multiplicative changes in measured water chemistry before and after the flood event at 2, 7, and 16 m depths at the center sampling location. Values above 1 correspond to increased concentrations while those below 1 indicate reduced concentrations. (a) Total phosphorus (TP), total dissolved phosphorus (TDP), and soluable reactive phosphorus (SRP), (b) anions, (c) Nitrogen species including total dissolved nitrogen (TDN), nitrate (NO3), nitrite (NO2), ammonium (NH4), and dissolved organic carbon (DOC), (d) cations. \\label{flooddiff}"}
+
+p.list <- c("SRP","TDP","TP")
+macros <- c("DOC","NH4","NO2","NO3","TDN")
+anions <- c("Br","Cl","F","SO4")
+cations <- c("Al","K","Fe","Mg","Mn","Ca","Na")
+
+p.plot <- ggplot(data = flood.dat.diff %>%
+              filter(parameter %in%p.list), 
+            aes(y = muldif, x = parameter, fill = Depth, col = Depth, shape = Depth)) +
+  geom_hline(yintercept = 1, col = "black")+
+  #geom_point(stat = "identity", position = "dodge", col = "white") +
+  geom_point(size = 3) +coord_flip() +
+  labs(y = "", x = "Measured parameter") + 
+  scale_color_viridis(discrete = T, begin = 0, end = 0.8) + theme_std()
+
+macros.plot <- ggplot(data = flood.dat.diff %>%
+              filter(parameter %in% macros), 
+            aes(y = muldif, x = parameter, fill = Depth, col = Depth, shape = Depth)) +
+  geom_hline(yintercept = 1, col = "black")+
+  #geom_point(stat = "identity", position = "dodge", col = "white") +
+  geom_point(size = 3) +coord_flip() +
+  labs(y = "Multiplicative change", x = "Measured parameter") + 
+  scale_color_viridis(discrete = T, begin = 0, end = 0.8) + theme_std()
+
+anions.plot <- ggplot(data = flood.dat.diff %>%
+              filter(parameter %in% anions), 
+            aes(y = muldif, x = parameter, fill = Depth, col = Depth, shape = Depth)) +
+  geom_hline(yintercept = 1, col = "black")+
+  #geom_point(stat = "identity", position = "dodge", col = "white") +
+  geom_point(size = 3) +coord_flip() +
+  labs(y = "", x = "") + 
+  scale_color_viridis(discrete = T, begin = 0, end = 0.8) + theme_std()
+
+cations.plot <- ggplot(data = flood.dat.diff %>%
+              filter(parameter %in% cations), 
+            aes(y = muldif, x = parameter, fill = Depth, col = Depth, shape = Depth)) +
+  geom_hline(yintercept = 1, col = "black")+
+  #geom_point(stat = "identity", position = "dodge", col = "white") +
+  geom_point(size = 3) +coord_flip() +
+  labs(y = "Multiplicative change", x = "") + 
+  scale_color_viridis(discrete = T, begin = 0, end = 0.8) + theme_std()
+
+flood.plot <- plot_grid(p.plot + theme(legend.position="none"), 
+          anions.plot + theme(legend.position="none"), 
+          macros.plot + theme(legend.position="none"), 
+          cations.plot + theme(legend.position="none"), 
+          ncol=2, align="vh", labels = c("a","b","c","d"))
+legend_b <- get_legend(p.plot + theme(legend.position="bottom"))
+p <- plot_grid(flood.plot, legend_b, ncol = 1, rel_heights = c(1, .2))
+p
+
+# save graphic
+# ggsave(filename = "./supporting-files/fig_floodchanges.tiff",
+#       plot = p, device = "tiff",
+#       dpi = 500, units = "in", width = 5.5, height = 5, scale = 1.25)
+
+```
+
+
+## Phytoplankton
+
+<figure1>
+```{r phytodataframes}
+phyto.dat <- read.csv("../database_Conestogo/clean_data/taxonomy/Conestogo_species_clean.csv") %>%
+  mutate(date = as.Date(date, format = "%Y-%m-%d"), DOY = yday(date))
+
+phyto.tax <- read.csv("../database_Conestogo/clean_data/taxonomy/Conestogo_speciestaxonomy_clean.csv") %>%
+  select(Access.Code, Phylum, Family, Genus, Species, Description.Code)
+
+
+#phyto.tax <- edit(phyto.tax) # use to change entries if needed...
+
+# merge density and biomass together
+phyto.merge <- phyto.dat %>%
+  left_join(phyto.tax, by = c("species.code"="Access.Code")) %>%
+  mutate(station = recode_factor(station, "center" = "clc", "east arm" = "cle"),
+         common.name = paste(Genus, Species, sep = " ")) %>%
+  filter(date <=as.Date("2017-12-31"))
+
+# create a dataset for the phytoplankton community
+phyto.com <- phyto.merge %>%
+  filter(Description.Code == "PHYT") %>%
+  group_by(station, date, DOY, Phylum) %>%
+  dplyr::summarise(total.biomass = sum(biomass.mg.m3), 
+            total.density = sum(density.cells.l))
+
+
+  
+# dataset representing the most abundant taxa
+# just a little data exploration to figure this out...
+# because of the different depths, we will assume the possibility of 
+# different taxa at each site
+```
+
+```{r cyanoplot, include = F}
+
+# cyanobacteria dataset. Includes epi and meta, no unclassified species
+
+cyano.com <- phyto.merge %>%
+  filter(Phylum == "Cyanophyta",
+         Family != ".")
+
+cyano.epi <- cyano.com %>%
+  filter(depth == 2) %>%
+  group_by(date, DOY, station, species.code) %>%
+  dplyr::summarize(total.biomass = sum(biomass.mg.m3)) %>%
+  spread(key = species.code, value = total.biomass, fill = 0) %>%
+  gather(key = species.code, value = total.biomass, P1041:P1211) %>%
+  left_join(phyto.tax, by = c("species.code" = "Access.Code")) %>%
+  mutate(common.name = paste(Genus, Species, sep = " "))
+
+cyano.epi.phyt <- cyano.epi  %>% filter(Description.Code == "PHYT")
+
+site_labels= c(clc = "Center", cle = "East", clw = "West")
+cyano.epi <- as.data.frame(cyano.epi)
+p <- ggplot(data = cyano.epi %>% filter(Description.Code == "PHYT"), 
+            aes(x = DOY, y = total.biomass, fill = common.name, col =common.name)) +
+  geom_vline(xintercept = yday(as.Date("2017-06-23")), col = "grey40", size = 0.5) +
+  #geom_vline(xintercept = yday(as.Date("2017-07-22")), col = "grey40", size = 0.5) +
+  #geom_vline(xintercept = yday(as.Date("2017-06-29")), col = "grey40", size = 0.5) +
+  geom_area(na.rm = TRUE, position = "stack") +
+  labs(x = "", y = expression("Total Biomass (mg m"^-3*")")) +
+  scale_fill_viridis(discrete = TRUE, option = "D",direction = 1, 
+                     guide = guide_legend(title = NULL, ncol = 1))+
+  scale_color_viridis(discrete = TRUE, option = "D",direction = 1,
+                      guide = guide_legend(title = NULL, ncol = 1)) +
+  #scale_x_date(date_breaks = "2 weeks", date_labels = "%d %b") + 
+  facet_wrap(~station, labeller = labeller(station = site_labels)) + 
+  theme(legend.position = "right", 
+        legend.text= element_text(face = "italic"),
+        strip.text=element_text(vjust=0.75)) + xlim(170,230) + 
+  scale_y_continuous(labels = comma)
+#+
+#geom_vline(xintercept = as.Date("2017-07-23"), col = "grey25")
+
+
+p$data$common.name <- factor(p$data$common.name, 
+                        levels = c("Aphanizomenon flos-aquae",
+                                   "Woronichinia compacta",
+                                   "Anabaena flos-aquae",
+                                   "Anabaena crassa",
+                                   "Microcystis aeruginosa",
+                                   "Planktolyngbya limnetica",
+                                   "Pseudoanabaena sp."))
+p$data$station <- factor(p$data$station, levels = c("clw","clc","cle"))
+p.cyano.com <- p
+#reposition_legend(p.cyano.com, 'top left', panel = "panel-1-1")
+#print(p.cyano.com)
+
+#ggsave(plot = p.cyano.com, "./supporting-files/phytoplankton_rain.tiff",
+#       height = 3., width = 7.5, dpi = 500, device = "tiff", scale = 1.6)
+
+```
+
+```{r cyanoplot2, include = F}
+ # create plot with aphanizomenon
+p <- ggplot(data = cyano.epi %>% filter(common.name != "Aphanizomenon flos-aquae", 
+                                        Description.Code == "PHYT"), 
+            aes(x = DOY, y = total.biomass, fill = common.name, col =common.name)) +
+  geom_vline(xintercept = yday(as.Date("2017-06-23")), col = "grey40", size = 0.5) +
+  #geom_vline(xintercept = yday(as.Date("2017-06-29")), col = "grey40", size = 0.5) +
+  #geom_vline(xintercept = yday(as.Date("2017-07-22")), col = "grey40", size = 0.5) +
+  geom_area(na.rm = TRUE, position = "stack") +
+  labs(x = "", y = expression("Total Biomass (mg m"^-3*")")) +
+  scale_fill_viridis(discrete = TRUE, option = "D",direction = 1, begin = 0.2, 
+                     guide = guide_legend(title = NULL, ncol = 1))+
+  scale_color_viridis(discrete = TRUE, option = "D",direction = 1,
+                      guide = guide_legend(title = NULL, ncol = 1)) +
+  #scale_x_date(date_breaks = "2 weeks", date_labels = "%d %b") + 
+  facet_wrap(~station, labeller = labeller(station = site_labels)) + 
+  theme(legend.position = "right", 
+        legend.text= element_text(face = "italic"),
+        strip.text=element_blank()) + xlim(170,230) + 
+  scale_y_continuous(labels = comma)
+#+
+#geom_vline(xintercept = as.Date("2017-07-23"), col = "grey25")
+
+
+p$data$common.name <- factor(p$data$common.name, 
+                        levels = c( "Woronichinia compacta",
+                                   "Anabaena flos-aquae",
+                                   "Anabaena crassa","Anabaena .",
+                                   "Microcystis aeruginosa",
+                                   "Planktolyngbya limnetica",
+                                   "Pseudoanabaena sp.","Aphanizomenon ."))
+p$data$station <- factor(p$data$station, levels = c("clw","clc","cle"))
+p.cyano.com.minusaphan <- p
+#reposition_legend(p.cyano.com, 'top left', panel = "panel-1-1")
+#print(p.cyano.com)
+
+#ggsave(plot = p.cyano.com.minusaphan, "./",
+#       height = 3., width = 7.5, dpi = 500, device = "tiff", scale = 1.6)
+
+```
+
+```{r cyanoplot-combine}
+
+plot.dat <- cyano.epi %>% filter(Description.Code == "PHYT") %>%
+  mutate(type = ifelse(common.name == "Aphanizomenon flos-aquae",1 , 2))
+
+# create data frame to force axis
+plot.dat2 <- data.frame(station = rep(unique(plot.dat$station),2), 
+                        type = c(1,1,1,2,2,2), 
+                        doy =rep(180,6),
+                        value = c(rep(11000,3), rep(750,3)),
+                        common.name = c(rep("Aphanizomenon flos-aquae",6)))
+
+p <- ggplot(data = plot.dat, 
+            aes(x = DOY, y = total.biomass, fill = common.name)) +
+  geom_point(data = plot.dat2, aes(x =doy, y = value), fill = "white",
+             col = "white",alpha = 0)+
+  geom_vline(xintercept = yday(as.Date("2017-06-23")), col = "grey40", size = 0.5) +
+  #geom_vline(xintercept = yday(as.Date("2017-06-29")), col = "grey40", size = 0.5) +
+  #geom_vline(xintercept = yday(as.Date("2017-07-22")), col = "grey40", size = 0.5) +
+  geom_area(na.rm = TRUE, position = "stack") +
+  labs(x = "Day of Year (DOY)", y = expression("Total Biomass (mg m"^-3*")")) +
+  scale_fill_viridis(discrete = TRUE, option = "D",direction = 1, begin = 0.1, 
+                     guide = guide_legend(title = NULL, nrow = 2))+
+  scale_color_viridis(discrete = TRUE, option = "D",direction = 1, begin = 0.1,
+                      guide = guide_legend(title = NULL, nrow = 2)) +
+  #scale_x_date(date_breaks = "2 weeks", date_labels = "%d %b") + 
+  facet_wrap(type~station, labeller = labeller(station = site_labels), 
+             scales = "free_y", ncol = 3) + 
+  theme(legend.position = "bottom", 
+        legend.text= element_text(face = "italic"),
+        strip.text=element_blank()) + xlim(170,230) + 
+  scale_y_continuous(labels = comma, breaks = c(0,750,2500,5000,7500,10000))
+#+
+#geom_vline(xintercept = as.Date("2017-07-23"), col = "grey25")
+
+
+p$data$common.name <- factor(p$data$common.name, 
+                        levels = c("Aphanizomenon flos-aquae","Woronichinia compacta",
+                                   "Anabaena flos-aquae",
+                                   "Anabaena crassa",
+                                   "Microcystis aeruginosa",
+                                   "Planktolyngbya limnetica",
+                                   "Pseudoanabaena sp."))
+p$data$station <- factor(p$data$station, levels = c("clw","clc","cle"))
+p.cyano.combine <- p
+#reposition_legend(p.cyano.com, 'top left', panel = "panel-1-1")
+#print(p.cyano.com)
+
+#ggsave(plot = p.cyano.com.minusaphan, "./",
+#       height = 3., width = 7.5, dpi = 500, device = "tiff", scale = 1.6)
+
+```
+
+
+```{r RMANOVA-cyanobiomass}
+
+cyano.stats <- phyto.com %>% filter(Phylum == "Cyanophyta")
+cyano.stats <- as.data.frame(cyano.stats)
+
+fit.ar1 <- lme(data = cyano.stats, 
+           total.biomass ~ DOY,  
+           random = ~1|station, 
+           correlation = corAR1(form = ~ DOY|station, value = 0), 
+           method = "REML", na.action=na.omit)
+
+fit.arma <- lme(data = cyano.stats, 
+           total.biomass ~ DOY,  
+           random = ~1|station, 
+           correlation = corARMA(form = ~ DOY|station, p = 1, q = 1), 
+           method = "REML", na.action=na.omit)
+
+fit.arma2 <- lme(data = cyano.stats, 
+           total.biomass ~ DOY,  
+           random = ~1|station, 
+           correlation = corARMA(form = ~ DOY|station, p = 1, q = 2), 
+           method = "REML", na.action=na.omit)
+
+mod.comp = anova(fit.ar1, fit.arma, fit.arma2)
+
+anova.lme(fit.ar1, type = "marginal")
+
+fit.fixed <- gls(data = cyano.stats, 
+           total.biomass ~ station*DOY, method = "REML")
+anova(fit.fixed)
+
+```
+
+
+```{r}
+# mean biomass and percent contribution to bloom
+cyano.bloom.contrib <- cyano.com %>%
+  filter(Description.Code == "PHYT",
+         depth == 2, DOY >= 191, DOY <= 225) %>%
+  group_by(station, species.code) %>%
+  mutate(mean.biomass = mean(biomass.mg.m3), 
+         sum.biomass = sum(biomass.mg.m3)) %>%
+  group_by(station)%>%
+  mutate(total.biomass = sum(biomass.mg.m3),
+         perc = prettyNum((sum.biomass/total.biomass)*100), small.mark = 1) %>%
+  select(station, species.code, common.name:perc) %>%
+  distinct()
+
+cyano.contrib <- cyano.com %>%
+  filter(Description.Code == "PHYT",
+         depth == 2) %>%
+  group_by(station, DOY, date, species.code) %>%
+  mutate(mean.biomass = mean(biomass.mg.m3), 
+         sum.biomass = sum(biomass.mg.m3)) %>%
+  group_by(station,DOY, date)%>%
+  mutate(total.biomass = sum(biomass.mg.m3),
+         perc = prettyNum((sum.biomass/total.biomass)*100), small.mark = 1) %>%
+  select(station, species.code, common.name:perc) %>%
+  distinct()
+```
+
+<figures3>
+```{r SUPPhytoBiomass, fig.cap="Phytoplankton biomass by phylum across the 2017 sampling campaign across the three sampling locations. \\label{phylum-biomass}", fig.height=4}
+p <- ggplot(data = phyto.com, 
+            aes(x = yday(date), y = total.biomass, fill = Phylum, col = Phylum)) +
+  #geom_vline(xintercept = as.Date("2017-07-23"), col = "grey40", size = 0.5) +
+  geom_vline(xintercept = yday(as.Date("2017-07-23")), col = "grey40", size = 0.5) +
+  #geom_vline(xintercept = yday(as.Date("2017-06-29")), col = "grey40", size = 0.5) +
+  geom_area(na.rm = TRUE, position = "stack") +
+  labs(x = "Day of Year", y = expression("Biomass (mg m"^-3*")")) + 
+  theme(legend.position = "bottom") + 
+  facet_wrap(~ station, labeller = labeller(station = site_labels)) +
+  scale_fill_viridis(discrete = TRUE, option = "D",direction = -1)+
+  scale_color_viridis(discrete = TRUE, option = "D",direction = -1) 
+#+
+#  scale_x_date(date_breaks = "2 weeks", date_labels = "%d %b") 
+#+
+#geom_vline(xintercept = as.Date("2017-07-23"), col = "grey25")
+p$data$Phylum <- factor(p$data$Phylum, 
+                        levels = c("Euglenophyta","Chlorophyta","Chrysophyta","Pyrrhophyta","Cyanophyta"))
+p$data$station = factor(p$data$station, levels = c("clw","clc","cle"))
+p.phy.com <- p
+print(p.phy.com)
+
+# ggsave(plot = p.phy.com, "./supporting-files/phytoplankton_com.tiff",
+#       height = 3., width = 7.5, dpi = 500, device = "tiff", scale = 1.25)
+```
+
+```{r SUPPhytoBiomassProp, fig.cap= "Proportional phytoplankton biomass by phylum across the 2017 sampling campaign in the East arm (left) and Center (right) sites.\\label{phylum-biomass-prop}", fig.height=4}
+p <- ggplot(data = phyto.com, 
+            aes(x = yday(date), y = total.biomass, fill = Phylum, col = Phylum)) +
+  #geom_vline(xintercept = as.Date("2017-07-23"), col = "grey40", size = 0.5) +
+  geom_area(na.rm = TRUE, position = "fill") +
+  labs(x = "Day of Year", y = "Relative abundance") + 
+  theme(legend.position = "bottom") + facet_wrap(~ station) +
+  #scale_y_continuous(labels = percent, limits  = c(0,1)) +
+  geom_hline(yintercept = 0.5, col = "grey25") +
+  geom_hline(yintercept = 0.8, col = "grey25") +
+  scale_fill_viridis(discrete = TRUE, option = "D",direction = -1)+
+  scale_color_viridis(discrete = TRUE, option = "D",direction = -1) #+
+
+  #scale_x_date(date_breaks = "2 weeks", date_labels = "%d %b") 
+
+p$data$Phylum <- factor(p$data$Phylum, 
+                        levels = c("Euglenophyta","Chlorophyta","Chrysophyta","Pyrrhophyta","Cyanophyta"))
+p$data$station = factor(p$data$station, levels = c("clw","clc","cle"))
+p.phy.com.prop <- p
+#print(p.phy.com.prop)
+```
+
+<PCoA does composition change?>
+
+```{r betasetup_data, eval = T}
+# make the data the way it needs to be, generate a site code
+phyto.merge.comp.analysis <- phyto.merge %>%
+  filter(depth == 2) %>%
+  mutate(DOY = yday(date),
+    site.code = paste0(station,DOY,"0",depth)) %>%
+  dplyr::select(site.code, station, date, species.code, 
+         density.cells.l, biomass.mg.m3) %>%
+  group_by(site.code, station, date, species.code) %>%
+  summarize_at(vars(density.cells.l, biomass.mg.m3), funs(total = sum))
+
+# make a site x species matrix
+phyto.merge.comp.analysis.biomass <- phyto.merge.comp.analysis %>%
+  select(site.code,species.code, biomass.mg.m3_total) %>%
+  spread(key = species.code, value = biomass.mg.m3_total, fill = 0) %>% ungroup()
+
+names <- phyto.merge.comp.analysis.biomass$site.code
+phyto.merge.comp.analysis.biomass <- phyto.merge.comp.analysis.biomass[,-(1:3)]
+phyto.merge.comp.analysis.biomass <- as.data.frame(phyto.merge.comp.analysis.biomass)
+row.names(phyto.merge.comp.analysis.biomass) <- names
+epi.species.mat <- phyto.merge.comp.analysis.biomass
+```
+
+```{r PCoAplotStats}
+# load the packages
+#for (package in package.list) {
+#  if (!require(package, character.only=TRUE, quietly=TRUE)) {
+#    install.packages(package)
+#    library(package, character.only=TRUE)
+#    }
+#}
+
+# Calculating Relative Abundance
+dataREL <- epi.species.mat
+  for(i in 1:ncol(epi.species.mat)){
+    dataREL[,i] = epi.species.mat[,i]/sum(epi.species.mat[,i])
+  }
+
+# Create Distance Matrix
+## Is data transformation needed?
+#sampleREL.dist <- vegdist(dataREL,method="bray")
+sampleREL.dist <- vegdist(decostand(dataREL,method="log"),method="bray")
+
+# Principal Coordinates Analysis
+REL_pcoa <- cmdscale(sampleREL.dist,k=3,eig=TRUE,add=FALSE) 
+  # Classical (Metric) Multidimensional Scaling; returns PCoA coordinates
+    	# eig=TRUE returns eigenvalues; k = # of dimensions to calculate
+REL_pcoa.plot <- as.data.frame(REL_pcoa$points)
+REL_pcoa.plot <- REL_pcoa.plot %>%
+  mutate(samp.no = rownames(REL_pcoa.plot),
+         site = as.factor(substr(samp.no, start = 1, stop = 3)),
+         day = as.factor(substr(samp.no, start = 4, stop = 6))) 
+
+colnames(REL_pcoa.plot) <- c("axis.1","axis.2","axis.3",
+                             "samp.no","site","DOY")
+#                            "yr.list","samp.list","mo.list")
+pcoa.plot <- ggplot(REL_pcoa.plot, 
+       aes(x = axis.1 , y = axis.2, shape = site, col = site)) +
+  geom_hline(yintercept = 0, col = "black", linetype = "dashed") +
+  geom_vline(xintercept = 0, col = "black", linetype = "dashed") +  
+  geom_point()+ 
+  geom_label(aes(label = DOY))+
+  scale_color_viridis(discrete = T, end = 0.8) +
+  xlab(paste0("PCoA Axis 1 (",round(REL_pcoa$eig[1]/sum(REL_pcoa$eig)*100, digits = 2),"%)")) +
+    ylab(paste0("PCoA Axis 2 (", round(REL_pcoa$eig[2]/sum(REL_pcoa$eig)*100, digits = 2),"%)")) 
+
+#print(pcoa.plot)
+epi.perm <- adonis(data = REL_pcoa.plot, 
+                   decostand(dataREL, method="log") ~ site*as.numeric(as.character(DOY)), method = "bray", permutations = 999)
+
+#epi.perm
+
+```
+
+
+```{r, eval= F}
+top10.mean.biomass.clc <- phyto.merge %>%
+  filter(station == "clc") %>%
+  mutate(common.name = as.factor(common.name)) %>%
+  group_by(common.name) %>%
+  summarize(#mean.density = mean(density.cells.l),
+            #sum.density = sum(density.cells.l),
+            mean.biomass = mean(biomass.mg.m3)
+            #sum.biomass = sum(biomass.mg.m3)
+            ) %>%
+  arrange(desc(mean.biomass)) %>%
+  top_n(n = 10) 
+
+top10.mean.biomass.cle <- phyto.merge %>%
+  filter(station == "cle") %>%
+  mutate(common.name = as.factor(common.name)) %>%
+  group_by(common.name) %>%
+  summarize(#mean.density = mean(density.cells.l),
+            #sum.density = sum(density.cells.l),
+            mean.biomass = mean(biomass.mg.m3)
+            #sum.biomass = sum(biomass.mg.m3)
+            ) %>%
+  arrange(desc(mean.biomass)) %>%
+  top_n(n = 10) 
+
+top10.mean.biomass.clw <- phyto.merge %>%
+  filter(station == "clw") %>%
+  mutate(common.name = as.factor(common.name)) %>%
+  group_by(common.name) %>%
+  summarize(#mean.density = mean(density.cells.l),
+            #sum.density = sum(density.cells.l),
+            mean.biomass = mean(biomass.mg.m3)
+            #sum.biomass = sum(biomass.mg.m3)
+            ) %>%
+  arrange(desc(mean.biomass)) %>%
+  top_n(n = 10) 
+
+captext = paste("Top 10 most abundant phytoplankton species at each site. \\label{top10biomass}")
+species.table <- cbind(top10.mean.biomass.clw[,1], top10.mean.biomass.clc[,1], top10.mean.biomass.cle[,1])
+colnames(species.table) <- c("West","Center", "East")
+species.table <- as.data.frame(as.matrix(species.table))
+pander(species.table, justify = "center", caption = captext)
+```
+
+```{r top10biomass, include = F}
+top10.mean.biomass <- phyto.merge %>%
+  mutate(common.name = as.factor(common.name)) %>%
+  group_by(station, common.name) %>%
+  mutate(#mean.density = mean(density.cells.l),
+            #sum.density = sum(density.cells.l),
+            mean.biomass = mean(biomass.mg.m3)
+            #sum.biomass = sum(biomass.mg.m3)
+            ) %>%
+  arrange(desc(mean.biomass)) %>%
+  top_n(n = 10) %>%
+  spread(key = station, value = mean.biomass)
+
+captext = paste("Top 10 phytoplankton species by biomass within each site.\\label{top10biomass}")
+pander(top10.mean.biomass, justify = c("left","right","right","right"), round= 0, 
+             caption = captext)
+
+```
+
+```{r top10density, include = F}
+top10.mean.density <- phyto.merge %>%
+  mutate(common.name = as.factor(common.name)) %>%
+  group_by(station, common.name) %>%
+  summarise(mean.density = mean(density.cells.l)
+            #sum.density = sum(density.cells.l),
+            #mean.biomass = mean(biomass.mg.m3)
+            #sum.biomass = sum(biomass.mg.m3)
+            ) %>%
+  arrange(desc(mean.density)) %>%
+  top_n(n = 10) %>%
+  spread(key = station, value = mean.density)
+
+## Use this information to plot the dynamics of the dominant species...all others are labeled as 'other'
+
+captext = paste("Top 10 phytoplankton species by denisty within each site.")
+pander(top10.mean.biomass, justify = c("left","right","right"), round= 0, 
+             caption = captext)
+
+```
+
+## Cyanotoxins
+```{r dataframes-toxins}
+tox.raw <- read.csv("../database_Conestogo/clean_data/toxin-analysis/Conestogo_toxins-LOQ-MOD.csv") %>%
+  mutate(Sampling.date = as.Date(Sampling.date, format = "%Y-%m-%d"), 
+         DOY = yday(Sampling.date)) 
+#tox.raw %>% group_by(site) %>% filter(MC.LR ==  max(MC.LR))
+#tox.raw %>% filter(site == "cle", DOY == 200)
+tox.dat <- tox.raw %>%
+  select(site, Sampling.date, DOY, Depth..m., MC.LR, MC.RR, MC.YR, AP.A) %>%
+  gather(key = toxin, value = concentration, MC.LR:AP.A) %>%
+  mutate(concentration = concentration/1000)
+
+tox.dat$concentration[is.na(tox.dat$concentration)] <-0
+```
+
+```{r toxinplot}
+
+site_labels_complete <- c(clc = "Center", clw = "West", cle = "East")
+
+p <- ggplot(data = tox.dat, 
+            aes(x = DOY, y = concentration, fill = toxin)) +
+  geom_vline(xintercept = yday(as.Date("2017-06-23")), col = "grey40", size = 0.5) +
+  #geom_vline(xintercept = yday(as.Date("2017-07-22")), col = "grey40", size = 0.5) +
+  geom_area(na.rm = TRUE, position = "stack") + 
+  scale_x_continuous(lim = c(170,230), breaks = c(180,200,220), labels = c(180,200,220)) +
+  labs(x = "Day of Year (DOY)", y = expression(paste("Concentration (",mu,"g L"^-1*")"))) + 
+  theme(legend.position = "bottom", strip.text.x = element_blank()) + 
+  facet_wrap(~ site, labeller = labeller(site = site_labels_complete)) +
+  #facet_wrap(~ site) +
+  scale_fill_viridis(discrete = TRUE, option = "C",direction = 1,
+                      guide = guide_legend(title = NULL, nrow = 1))
+  #scale_color_viridis(discrete = TRUE, option = "C",direction = 1) 
+  #scale_fill_grey(start = 0.2, end = 0.9, aesthetics = "fill")
+  #scale_x_date(limits= c(as.Date("2017-07-05"), as.Date("2017-08-17")),
+  #             date_breaks = "2 weeks", date_labels = "%d %b")
+
+p$data$site<- factor(p$data$site, 
+                        levels = c("clw","clc","cle"))
+
+p.tox <- p
+```
+
+```{r pubfig2, fig.cap="Cyanobacterial biomass (a) and detected toxin concentrations (b) across the three sampling sites. \\label{cyanobiomasstoxin}", fig.height = 5, fig.width=7.5}
+
+# p <- plot_grid(p.cyano.com,
+#                p.cyano.com.minusaphan,
+#                p.tox, 
+#                ncol = 1, nrow = 3, align = "v", 
+#                labels = "auto", vjust = 1, hjust = 0)
+# print(p)
+
+
+p <- plot_grid(p.cyano.combine,
+               p.tox, 
+               ncol = 1, nrow = 2, align = "v", 
+               labels = "auto", vjust = 0.75, hjust = 0, rel_heights = c(2,1.25))
+print(p)
+
+ggsave(plot = p,
+      filename = "./supporting-files/fig_phytoplanktontoxins.tiff",
+      height = 7, width = 7.5, dpi = 500, device = "tiff", scale = 1.25)
+
+# ggsave(plot = grid.arrange(reposition_legend(p.cyano.com, panel = "panel-1-1",
+#                              offset = c(0,0.01), position = "top left"),
+#             reposition_legend(p.cyano.com.minusaphan, panel = "panel-1-1",
+#                               offset = c(0,0.01), position = "top left"),
+#             reposition_legend(p.tox, panel = "panel-1-1",
+#                               offset = c(0,0.01), position = "top left"),
+#             ncol = 1),
+#       "./supporting-files/phytoplanktontoxins-2.tiff",
+#       height = 6, width = 7.5, dpi = 500, device = "tiff", scale = 1.6)
+```
+
+<testing for relationships between cyanospecies and toxins>
+
+```{r, eval = F}
+cyano.biomass.mat <- phyto.merge %>%
+  filter(depth == 2, Phylum == "Cyanophyta", 
+         Family != ".", Description.Code == "PHYT") %>% # select epi species level cyanos
+  mutate(samp.no = paste0(station, DOY)) %>%
+  select(samp.no, species.code, biomass.mg.m3) %>%
+  spread(species.code, biomass.mg.m3, fill = 0) %>% # create matrix of biomass data, fill NA's with 0
+  select(samp.no,P1041,P1076)
+
+# only species that were visible in sample were counted. assume true 0's for everything else
+
+toxins.mat <- tox.dat %>%
+  mutate(samp.no = paste0(site, DOY)) %>%
+  select(samp.no, toxin, concentration) %>%
+  spread(toxin, concentration, fill = 0)
+
+# the toxin matrix has an extra date. Remove from matrix
+toxins.mat <- toxins.mat[-1,]
+
+merge.bio <- cyano.biomass.mat %>%
+  left_join(toxins.mat, by = "samp.no") %>%
+  mutate(site = as.factor(substr(samp.no, start = 1, stop = 3)),
+         DOY = as.numeric(substr(samp.no, start = 4, stop = 6)))
+
+pairs(merge.bio[,-c(1,8:9)])
+
+#rownames(cyano.biomass.mat) <- cyano.biomass.mat
+
+res <- cor(cyano.biomass.mat[,-1], toxins.mat[,-1], method = "kendall")
+res
+
+library(psych)
+res <- corr.test(cyano.biomass.mat[,-1], toxins.mat[,-1], method = "kendall")
+res
+
+res.clc <- corr.test(cyano.biomass.mat[1:7,-1], toxins.mat[1:7,-1], method = "kendall")
+res.clc
+
+res.cle <- corr.test(cyano.biomass.mat[8:14,-1], toxins.mat[8:14,-1], method = "kendall")
+res.cle
+
+res.clw <- corr.test(cyano.biomass.mat[15:20,-1], toxins.mat[15:20,-1], method = "kendall")
+res.clw
+
+```
+
+<no correlation between cyano biomass and individual toxin concentration>
+
+```{r RMANOVA-tox}
+
+tox.dat$toxin <- as.factor(tox.dat$toxin)
+
+fit1 <- lme(data = tox.dat, 
+           concentration ~ toxin*DOY*site,  
+           random = ~1|site, 
+           correlation = corAR1(form = ~ DOY|site, value = 0), 
+           method = "REML", na.action=na.omit)
+anova(fit1)
+
+fit.fixed <- gls(data = tox.dat, 
+           concentration ~ toxin*site*DOY, method = "REML")
+anova(fit.fixed)
+
+```
+
+\newpage
+
+```{r toxWestTable}
+cap.text = "Concentrations of detected cyanotoxins in the West arm. All quantities are reported in ug L. AP.A = anabaenapeptolin-A, MC = microcystin\\label{westtox-table}"
+
+tox.table <- tox.dat %>% 
+  filter(site == "clw") %>%
+  spread(key = toxin, value = concentration) %>%
+  select(Sampling.date, AP.A:MC.YR)
+
+pander(tox.table, justify = "right", 
+       caption = cap.text)
+```
+
+```{r toxCenterTable}
+cap.text = "Concentrations of detected cyanotoxins in the Centre arm. All quantities are reported in ug/L.\\label{centertox-table}"
+
+tox.table <- tox.dat %>% 
+  filter(site == "clc") %>%
+  spread(key = toxin, value = concentration) %>%
+  select(Sampling.date, AP.A:MC.YR)
+
+pander(tox.table, justify = "right", 
+       caption = cap.text)
+```
+
+```{r toxEastTable}
+cap.text = "Concentrations of detected cyanotoxins in the East arm. All quantities are reported in ug/L. \\label{easttox-table}"
+
+tox.table <- tox.dat %>% 
+  filter(site == "cle") %>%
+  spread(key = toxin, value = concentration) %>%
+  select(Sampling.date, AP.A:MC.YR)
+
+pander(tox.table, justify = "right", 
+       caption = cap.text)
+```
+
+\newpage
+
+## Hydrology and descriptive limnolical characteristics
+
+```{r lake_depth, fig.cap = "Lake depth (**left**) and corresponding measured secchi depth (**right**) from the Center (purple), East (dark green) and West (light green) sampling locations throughout the course of the 2017 sampling campaign. The vertical line in the secchi depth corresponds to the date of peak biomass in lake. \\label{lakedepth}", fig.height=8}
+met.dat <- read.csv("../database_Conestogo/clean_data/con_met_data.csv", header = T)
+
+met.dat <- met.dat %>%
+  mutate(Date = as.Date(Date, format = "%d-%b-%y"))
+
+lake.depth <- ggplot(met.dat, aes(Date, Depth_M, col = Site, shape = Site)) +
+  geom_line(size = 1.5) +
+  geom_point(size = 5, col= "white") +
+  geom_point(size = 3)+
+  scale_color_viridis(discrete = T, option = "D", begin = 0.2, end = 0.8) +
+  scale_x_date(date_breaks = "2 weeks", date_labels = "%d %b") +
+  scale_y_reverse(lim = c(18,0)) +
+  labs(x = "", y = "Depth (m)",
+       title = "Lake bottom depth") +
+  theme(legend.position="none",
+        panel.grid.major.y= element_line(colour = "grey70", size = 0.5)) 
+
+secchi <- ggplot(met.dat, aes(Date, Secchi, col = Site, shape = Site)) +
+  geom_line(size = 1.5) +
+  geom_point(size = 5, col= "white") +
+  geom_vline(xintercept = as.Date("2017-07-19"), col = "blue") + #date for peak biomass
+  geom_point(size = 3)+
+  scale_color_viridis(discrete = T, option = "D", begin = 0.2, end = 0.8)  +
+  scale_x_date(date_breaks = "2 weeks", date_labels = "%d %b") +
+  scale_y_reverse(lim = c(5,0)) +
+  labs(x = "", y = "Depth (m)",
+       title = "Secchi Depth") +
+  theme(legend.position="none",
+    panel.grid.major.y= element_line(colour = "grey75", size = 0.5)) 
+
+#grid.arrange(lake.depth, secchi, ncol = 2)
+# If arranging these two plots together, consider moving the legend into the secchi depth plot and removing from lake bottom depth
+## consider plotting secchi against total phytoplankton biomass... with time lags
+```
+
+```{r}
+# summarize depth and secchi
+res.sum <- met.dat %>% 
+  select(Site:Depth_M, Secchi) %>% 
+  group_by(Site) %>%
+  summarize_if(is.numeric, c(mean, min, max))
+
+```
+<inserted from part2 environmental analysis>
+
+```{r MetDataImport}
+con.dat <- read.csv("../database_Conestogo/clean_data/con_met_data.csv", 
+                    header = T) %>% 
+  mutate(Date = as.Date(Date, format = "%d-%b-%y")) %>%
+  select(Site:Secchi)
+
+#head(con.dat)
+
+res.dat <- read.csv("../formbloom_conestogo_2017EDA/data/reservoirhistorical.csv", 
+                    header = T) %>%
+  mutate(date = as.Date(date, format = "%Y-%m-%d")) %>%
+  select(date:wind.speed.km.hr_mean,precip.mm_sum, res.time)
+
+# Create merged data file
+res.dat.merged <- con.dat %>%
+  left_join(res.dat, by = c("Date" = "date"))
+
+```
+
+```{r SondeDataImport}
+#merge.dat <- res.dat.merged %>%
+#  left_join(res.levels.daily, by = c("Date" = "date")) %>%
+#  mutate(bottom.elev = mean.value - Depth_M)
+
+sonde.dat <- read.csv("../database_Conestogo/clean_data/2018-08-03sonde_profiles.csv")
+sonde.dat <- sonde.dat[,-1] %>%
+  mutate(date = as.Date(date))
+
+# to keep data equal between dates, remove additional 0.25 readings from dataset and add value at bottom depth
+toDelete <- seq(1, nrow(sonde.dat %>% filter(site == "clc", date == as.Date("2017-06-21"))), 2)
+clc621 <- sonde.dat %>% filter(site == "clc", date == as.Date("2017-06-21"))
+clc621 <- clc621[ toDelete ,]
+clc621[35,] <- clc621[34,]
+clc621[35,14] <- 17
+
+sonde.dat <- sonde.dat %>% filter(site != "clc"| date != as.Date("2017-06-21")) %>%
+  bind_rows(clc621)
+
+#library(lubridate)
+met.sonde.dat <- sonde.dat %>%
+  left_join(res.dat.merged, by = c("date" = "Date", "site" = "Site")) %>%
+  mutate(ele.depth = elevation.m_mean-depth.adj,
+    #ele.depth = mean.value-depth.adj,
+         DOY = yday(date))
+
+# correct issue with sonde depth and depth adj
+### move data over
+met.sonde.dat[which(is.na(met.sonde.dat$depth.sonde.m)),'depth.sonde.m'] <- met.sonde.dat[which(is.na(met.sonde.dat$depth.sonde.m)),'depth.adj']
+
+met.sonde.dat <- met.sonde.dat %>%
+  mutate(depth.adj.new = round_any(depth.sonde.m, accuracy = 0.5, f = round),
+         depth.diff = abs(depth.sonde.m-depth.adj.new))
+#         ele.depth.new = mean.value-depth.adj.new) 
+#%>%
+ # filter(depth.diff >=0.2) %>%
+  #distinct(site, date, depth.sonde.m, depth.adj.new, depth.diff)
+
+```
+
+<figureS5>
+```{r TempInterpPlot}
+#West
+temp.clw <- interp.plot(df = met.sonde.dat, site.id = "clw",variable = "temp.C", 
+                        doy.start = 170, doy.end = 230)
+temp.clw <- temp.clw + 
+  labs(title ="West", x = "") +
+  geom_vline(xintercept = 173, col = "white")
+  
+
+#Centre
+temp.clc <- interp.plot(df = met.sonde.dat, site.id = "clc",variable = "temp.C", 
+                        doy.start = 170, doy.end = 230)
+
+temp.clc <- temp.clc + 
+  labs(title ="Center", x = "", y = "")  +
+  geom_vline(xintercept = 173, col = "white")
+
+#East
+temp.cle <- interp.plot(df = met.sonde.dat, site.id = "cle",variable = "temp.C", 
+                        doy.start = 170, doy.end = 230)
+
+temp.cle <- temp.cle + 
+  labs(title ="East", x = "", y = "") +
+  geom_vline(xintercept = 173, col = "white")
+
+
+
+#grid_arrange_shared_legend(temp.clw, temp.clc, temp.cle, 
+#                                  ncol = 3, position='right')
+
+#ggsave("./supporting-files/TempInterp.tiff",
+#       grid_arrange_shared_legend(temp.clw, temp.clc, temp.cle, 
+#                                  ncol = 3, position='right'),
+#       height = 2.5, width = 7.5, dpi = 500, device = "tiff", scale = 1.6)
+```
+
+```{r DOInterpPlot}
+
+do.clw <- interp.plot(df = met.sonde.dat, site.id = "clw",variable = "DO.mgl", 
+                        doy.start = 170, doy.end = 230)
+do.clw <- do.clw +
+  geom_vline(xintercept = 173, col = "white") +
+  labs(x = "")
+
+do.clc <- interp.plot(df = met.sonde.dat, site.id = "clc",variable = "DO.mgl", 
+                        doy.start = 170, doy.end = 230)
+do.clc <- do.clc + 
+  geom_vline(xintercept = 173, col = "white")+
+  labs(x = "", y = "")
+
+do.cle <- interp.plot(df = met.sonde.dat, site.id = "cle",variable = "DO.mgl", 
+                        doy.start = 170, doy.end = 230)
+do.cle <- do.cle + 
+  geom_vline(xintercept = 173, col = "white")+
+  labs(x = "", y = "")
+
+#grid_arrange_shared_legend(do.clw, do.clc, do.cle, ncol = 3, position='right')
+#ggsave("./supporting-files/DOInterp.tiff",
+#       grid_arrange_shared_legend(do.clw, do.clc, do.cle, ncol = 3, position='right'),
+#       height = 2.5, width = 7.5, dpi = 500, device = "tiff", scale = 1.6)
+```
+
+```{r chlInterpPlot}
+
+clw <- interp.plot(df = met.sonde.dat, site.id = "clw",variable = "Chl", 
+                        doy.start = 170, doy.end = 230)
+clw <- clw + 
+  geom_vline(xintercept = 173, col = "white") 
+
+clc <- interp.plot(df = met.sonde.dat, site.id = "clc",variable = "Chl", 
+                        doy.start = 170, doy.end = 230)
+
+clc <- clc + 
+  geom_vline(xintercept = 173, col = "white") + labs(y = "")
+
+
+cle <- interp.plot(df = met.sonde.dat, site.id = "cle",variable = "Chl", 
+                        doy.start = 170, doy.end = 230)
+cle <- cle + 
+  geom_vline(xintercept = 173, col = "white") + labs(y = "")
+
+#ggsave("./supporting-files/chla.tiff",
+#       grid_arrange_shared_legend(clw, clc, cle, ncol = 3, position='right'),
+#       height = 2.5, width = 7.5, dpi = 300, device = "tiff", scale = 1.6)
+```
+
+```{r, fig.cap="Physical profiles of temperature (a), dissolved oxygen (b), and chlorophyll a (c) across the west, centre, and east sampling locations. The white bar corresponds to the flood event on 23 Jun 2017.\\label{sondeprofiles}", fig.height = 7, fig.width = 7.5 }
+
+
+p <- grid_arrange_shared_legend(temp.clw, temp.clc, temp.cle, 
+                                  ncol = 3, position='right', plot = F)
+p2 <- grid_arrange_shared_legend(do.clw, do.clc, do.cle, ncol = 3, position='right', plot = F)
+
+p3 <- grid_arrange_shared_legend(clw, clc, cle, ncol = 3, position='right',plot = F)
+
+plot_grid(p,p2,p3, align = "v", ncol = 1, labels = "auto")
+
+
+
+#ggsave(filename = "./supporting-files/sondeprofiles.pdf", plot_grid(p,p2,p3, align = "v", ncol = 1, labels = "auto"), units = "in", width = 9, height = 6, dpi = 300, scale = 2)
+# ggsave(filename = "./supporting-files/fig_sondeprofiles.tiff", plot_grid(p,p2,p3, align = "v", ncol = 1, labels = "auto"), units = "in", width = 6.5, height = 5, dpi = 500, scale = 1.25)
+```
+
+<PAR>
+```{r par-data-import}
+par.data <- read.csv("../database_Conestogo/clean_data/par_merged.csv",
+                       header = T)
+
+par.data <- par.data %>%
+  mutate(date = as.Date(date, format = "%Y-%m-%d"),
+         DOY = yday(date)) %>%
+  select(site, date, DOY, Depth, PAR)
+
+## Data QAQC
+#summary(par.data)
+
+## Select depth range where light incidence is at 1% of max on day of sampling
+#par.data.epi <- par.data %>%
+#  group_by(site, date) %>%
+#  filter(PAR >= max(PAR)*0.01)
+
+
+
+```
+
+```{r PARinterpfunc}
+interp.par.plot <- function(df = "", site.id = "", variable = ""){
+  df <- as.data.frame(df)
+  mba <- mba.surf(df %>% filter(site == site.id) %>% select(DOY,Depth,variable), 100, 100)
+  dimnames(mba$xyz.est$z) <- list(mba$xyz.est$x, mba$xyz.est$y)
+  df3 <- melt(mba$xyz.est$z, varnames = c('DOY', 'Depth'), value = 'temperature')
+  print(head(df3))
+  
+    fig <- ggplot(data = df3, aes(DOY, Depth))+
+    geom_rect(aes(xmin = 170, xmax = 230, ymin = 0, ymax = 4), 
+                fill = "grey50") +
+      geom_raster(aes(fill = value), interpolate = F, hjust = 0.5, vjust = 0.5) +
+    geom_contour(aes(z = value), color = "white", alpha = 0.5) + 
+    geom_point(data = df %>% filter(site == site.id), aes(DOY, Depth), 
+               col = "grey75", bg = 'grey25', alpha= 0.7, size = 2, shape = 21) +
+    scale_fill_viridis(limits=c(0, 1800), alpha = 1, 
+                       direction = 1, discrete = F, option = "D") +
+    scale_y_reverse(limits =c(4,0)) + xlim(170, 230) +
+    labs(x = "Day of Year", y = "Depth (m)") + theme_std()
+  
+  print(fig) 
+}
+```
+
+```{r, eval = F}
+clc.par.epi.plot <- interp.par.plot(df = par.data, site.id = "clc", variable = "PAR")
+cle.par.epi.plot <- interp.par.plot(df = par.data, site.id = "cle", variable = "PAR")
+clw.par.epi.plot <- interp.par.plot(df = par.data, site.id = "clw", variable = "PAR")
+
+grid.arrange(clc.par.epi.plot, cle.par.epi.plot, clw.par.epi.plot)
+```
+
+```{r chemdataImport}
+chem.dat <- read.csv("../database_Conestogo/clean_data/chemistries/con_chemistry_profiles.csv", header = T) %>%
+  mutate(Date = as.Date(Date, format = "%y-%m-%d"))
+
+#merge.chem.dat <- chem.dat %>%
+#  left_join(con.dat, by = c("Date" = "Date", "Site" = "Site")) %>%
+#  left_join(res.levels.daily, by = c("Date" = "date")) %>%
+#  mutate(bottom.elev = mean.value - Depth_M,
+#         ele.depth = mean.value - Depth, DOY = yday(Date)) %>%
+#  select(Site, Date, DOY, Depth:TP, Secchi, Air_Temp:mean.value, ele.depth)
+
+merge.chem.dat <- chem.dat %>%
+  left_join(res.dat.merged, by = c("Date", "Site")) %>%
+  mutate(bottom.elev = elevation.m_mean - Depth_M,
+         ele.depth = elevation.m_mean - Depth, DOY = yday(Date)) 
+
+#head(chem.dat)
+
+chem.dat.epi <- chem.dat %>%
+  filter(Depth == 2) %>%
+  mutate(Date = as.Date(Date, format = "%y-%m-%d")) %>%
+  select(Site:Date, Fe:TDN, DOC, TDP:TP)
+
+chem.dat.meta <- chem.dat %>%
+  filter(Depth <= 7, Depth != 2) %>%
+  mutate(Date = as.Date(Date, format = "%y-%m-%d")) %>%
+  select(Site:Date, Fe:TDN, DOC, TDP:TP)
+
+chem.dat.hypo <- chem.dat %>%
+  filter(Depth != 7, Depth != 2) %>%
+  mutate(Date = as.Date(Date, format = "%y-%m-%d")) %>%
+  select(Site:Date, Depth, Fe:TDN, DOC, TDP:TP)
+```
+
+```{r SRPInterpPlot}
+
+vari = "SRP"
+
+clw <- interp.plot.chem(df = merge.chem.dat, site.id = "clw",variable = vari, 
+                        doy.start = 170, doy.end = 230)
+clw.srp <- clw + 
+  labs(title ="West", x = "") + 
+  geom_vline(xintercept = 173, col = "white") +
+  annotate("text", label = "Soluable Reactive Phosphorus", 
+           col = "white", x = 200, y= 375)
+
+clc <- interp.plot.chem(df = merge.chem.dat, site.id = "clc",variable = vari, 
+                        doy.start = 170, doy.end = 230)
+clc.srp <- clc + 
+  geom_vline(xintercept = 173, col = "white") +
+  labs(title ="Centre", x = "", y = "")
+
+cle <- interp.plot.chem(df = merge.chem.dat, site.id = "cle",variable = vari, 
+                        doy.start = 170, doy.end = 230)
+cle.srp <- cle + 
+  labs(title ="East", x = "", y = "") + 
+  geom_vline(xintercept = 173, col = "white") 
+
+
+#ggsave("./supporting-files/SRPInterp.tiff",
+#       grid_arrange_shared_legend(clw, clc, cle, 
+#                                  ncol = 3, position='right'),
+#       height = 2.5, width = 7.5, dpi = 300, device = "tiff", scale = 1.6)
+```
+
+```{r TDPInterpPlot}
+
+vari = "TDP"
+
+clw <- interp.plot.chem(df = merge.chem.dat, site.id = "clw",variable = vari, 
+                        doy.start = 170, doy.end = 230)
+clw.tdp <- clw + 
+  geom_vline(xintercept = 173, col = "white")+
+  labs(y = "Elevation (m)", x = "", title = "") +
+    annotate("text", label = "Total Dissolved Phosphorus", 
+           col = "white", x = 200, y= 375)
+
+clc <- interp.plot.chem(df = merge.chem.dat, site.id = "clc",variable = vari, 
+                        doy.start = 170, doy.end = 230)
+clc.tdp <- clc + 
+  geom_vline(xintercept = 173, col = "white")+
+  labs(x = "", y = "", title = "")
+
+cle <- interp.plot.chem(df = merge.chem.dat, site.id = "cle",variable = vari, 
+                        doy.start = 170, doy.end = 230)
+cle.tdp <- cle + 
+  geom_vline(xintercept = 173, col = "white")+
+  labs(x = "", y = "", title = "")
+
+#ggsave("./supporting-files/TDPInterp.tiff",
+#       grid_arrange_shared_legend(clw, clc, cle, 
+#                                  ncol = 3, position='right'),
+#       height = 2.5, width = 7.5, dpi = 300, device = "tiff", scale = 1.6)
+```
+
+```{r TPInterpPlot}
+
+vari = "TP"
+
+clw <- interp.plot.chem(df = merge.chem.dat, site.id = "clw",variable = vari, 
+                        doy.start = 170, doy.end = 230)
+clw.tp <- clw + 
+  geom_vline(xintercept = 173, col = "white")+
+  labs(y = "Elevation (m)", x = "", title = "") +
+    annotate("text", label = "Total Phosphorus", 
+           col = "white", x = 200, y= 375)
+
+clc <- interp.plot.chem(df = merge.chem.dat, site.id = "clc",variable = vari, 
+                        doy.start = 170, doy.end = 230)
+clc.tp <- clc + 
+  geom_vline(xintercept = 173, col = "white")+
+  labs(x = "", y = "", title = "")
+
+cle <- interp.plot.chem(df = merge.chem.dat, site.id = "cle",variable = vari, 
+                        doy.start = 170, doy.end = 230)
+cle.tp <- cle + 
+  geom_vline(xintercept = 173, col = "white")+
+  labs(x = "", y = "", title = "")
+
+#ggsave("./supporting-files/TPInterp.tiff",
+#       grid_arrange_shared_legend(clw, clc, cle, 
+#                                  ncol = 3, position='right'),
+#       height = 2.5, width = 7.5, dpi = 300, device = "tiff", scale = 1.6)
+```
+
+```{r NO3InterpPlot}
+
+vari = "NO3"
+
+clw <- interp.plot.chem(df = merge.chem.dat, site.id = "clw",variable = vari, 
+                        doy.start = 170, doy.end = 230)
+clw.no3 <- clw + 
+  geom_vline(xintercept = 173, col = "white")+
+  labs(y = "Elevation (m)", x = "", title = "")+
+    annotate("text", label = "Nitrate", 
+           col = "white", x = 200, y= 375)
+
+clc <- interp.plot.chem(df = merge.chem.dat, site.id = "clc",variable = vari, 
+                        doy.start = 170, doy.end = 230)
+clc.no3 <- clc + 
+  geom_vline(xintercept = 173, col = "white")+
+  labs(x = "", y = "", title = "")
+
+cle <- interp.plot.chem(df = merge.chem.dat, site.id = "cle",variable = vari, 
+                        doy.start = 170, doy.end = 230)
+cle.no3 <- cle + 
+  geom_vline(xintercept = 173, col = "white")+
+  labs(x = "", y = "", title = "")
+
+#ggsave("./supporting-files/TPInterp.tiff",
+#       grid_arrange_shared_legend(clw, clc, cle, 
+#                                  ncol = 3, position='right'),
+#       height = 2.5, width = 7.5, dpi = 300, device = "tiff", scale = 1.6)
+```
+
+```{r TDNInterpPlot}
+
+vari = "TDN"
+
+clw <- interp.plot.chem(df = merge.chem.dat, site.id = "clw",variable = vari, 
+                        doy.start = 170, doy.end = 230)+
+  labs(y = "Elevation (m)", x = "", title = "")
+clw.tdn <- clw + 
+  geom_vline(xintercept = 173, col = "white") +
+    annotate("text", label = "Total Dissolved Nitrogen", 
+           col = "white", x = 200, y= 375)
+
+clc <- interp.plot.chem(df = merge.chem.dat, site.id = "clc",variable = vari, 
+                        doy.start = 170, doy.end = 230)
+clc.tdn <- clc + 
+  geom_vline(xintercept = 173, col = "white") +
+  labs(y = "", x = "Day of year", title = "")
+
+cle <- interp.plot.chem(df = merge.chem.dat, site.id = "cle",variable = vari, 
+                        doy.start = 170, doy.end = 230)
+cle.tdn <- cle + 
+  geom_vline(xintercept = 173, col = "white") +
+  labs(x = "", y = "", title = "")
+
+#ggsave("./supporting-files/TPInterp.tiff",
+#       grid_arrange_shared_legend(clw, clc, cle, 
+#                                  ncol = 3, position='right'),
+#       height = 2.5, width = 7.5, dpi = 300, device = "tiff", scale = 1.6)
+```
+
+```{r, fig.cap="Chemical profiles of phosphorus species across the west, centre, and east sampling locations. The white bar corresponds to the flood event on 23 Jun 2017.\\label{chemprofiles}",  fig.width=7.5, fig.height = 7}
+
+p.data <- cle.tdp$data %>%
+  mutate(site = "East", variable = "TDP")
+
+p.data <- clc.tdp$data %>%
+  mutate(site = "Center", variable = "TDP") %>%
+  bind_rows(p.data)
+
+p.data <- clw.tdp$data %>%
+  mutate(site = "West", variable = "TDP") %>%
+  bind_rows(p.data)
+
+p.data <- cle.srp$data %>%
+  mutate(site = "East", variable = "SRP") %>%
+  bind_rows(p.data)
+
+p.data <- clc.srp$data %>%
+  mutate(site = "Center", variable = "SRP") %>%
+  bind_rows(p.data)
+
+p.data <- clw.srp$data %>%
+  mutate(site = "West", variable = "SRP") %>%
+  bind_rows(p.data)
+
+p.data <- cle.tp$data %>%
+  mutate(site = "East", variable = "TP") %>%
+  bind_rows(p.data)
+
+p.data <- clc.tp$data %>%
+  mutate(site = "Center", variable = "TP") %>%
+  bind_rows(p.data)
+
+p.data <- clw.tp$data %>%
+  mutate(site = "West", variable = "TP") %>%
+  bind_rows(p.data) %>%
+  mutate_if(is.character, as.factor)
+
+chem.dat.plot <- merge.chem.dat %>%
+  mutate(site = Site)
+levels(chem.dat.plot$site) <- c("Center","East","West")
+
+phos.plot <- ggplot(data = p.data, aes(x = DOY, y = ele.depth)) +
+  geom_raster(aes(fill = value), interpolate = F, hjust = 0.5, vjust = 0.5, na.rm = T) +
+  geom_contour(aes(z = value), color = "white", alpha = 0.4, size = 0.8) + 
+#  geom_point(data = df %>% filter(Site == site.id), aes(DOY, ele.depth), 
+ #            col = "grey50", bg = 'grey25', alpha= 0.7, size = 1.25, shape = 21) +
+  scale_fill_viridis(limits=c(0, 125), direction = 1, discrete = F, option = "D", 
+                     name = expression(paste(mu,"g-P L"^-1))) +
+      #scale_y_reverse() + 
+      #ylim(375, 393) +
+  geom_point(data = chem.dat.plot, 
+             aes(DOY, ele.depth), 
+                 col = "grey50", bg = 'grey25', alpha= 0.7, size = 1.25, shape = 21) +
+  xlim(170, 230) +
+  labs(x = "", y = "Elevation (m)") + 
+  facet_grid(variable ~ site) +
+      #geom_vline(xintercept = 174, col = "grey40") + 
+      #geom_vline(xintercept = 204, col = "grey40") +
+  theme_std() +
+  theme(panel.background = element_rect(fill = "grey50"),
+          panel.spacing = unit(0.75, "lines"),
+        strip.placement = "outside",
+        strip.switch.pad.grid = unit(0.75, "lines")) +
+  geom_vline(xintercept = 174, col = "white")
+
+phos.plot$data$site <- factor(phos.plot$data$site, levels = c("West","Center", "East"))
+
+
+# p <- grid_arrange_shared_legend(clw.srp + theme(plot.margin = unit(c(0, 0, 0, 0), "pt"),
+#                                                 axis.text.x=element_blank()),
+#                                 clc.srp + theme(plot.margin = unit(c(0, 0, 0, 0), "pt"),
+#                                                 axis.text = element_blank()),
+#                                 cle.srp + theme(plot.margin = unit(c(0, 0, 0, 0), "pt"),
+#                                                 axis.text = element_blank()),
+#                                 clw.tdp + theme(plot.margin = unit(c(0, 0, 0, 0), "pt"),
+#                                                 axis.text.x=element_blank()), 
+#                                 clc.tdp + theme(plot.margin = unit(c(0, 0, 0, 0), "pt"),
+#                                                 axis.text=element_blank()), 
+#                                 cle.tdp + theme(plot.margin = unit(c(0, 0, 0, 0), "pt"),
+#                                                 axis.text=element_blank()),
+#                                 clw.tp + theme(plot.margin = unit(c(0, 0, 0, 0), "pt"),
+#                                                 axis.text.x=element_blank()), 
+#                                 clc.tp + theme(plot.margin = unit(c(0, 0, 0, 0), "pt"),
+#                                                 axis.text=element_blank()), 
+#                                 cle.tp + theme(plot.margin = unit(c(0, 0, 0, 0), "pt"),
+#                                                 axis.text=element_blank()),
+#                                 ncol = 3, nrow = 3, position='right', plot = T)
+# 
+# ggsave(filename = "./supporting-files/phosphorus.tiff",
+#      grid_arrange_shared_legend(clw.srp, clc.srp, cle.srp,
+#                                 clw.tdp, clc.tdp, cle.tdp,
+#                                 clw.tp, clc.tp, cle.tp,
+#                                 ncol = 3, nrow = 3, position='right', plot = T),
+#      units = "in", width = 6.5, height = 5.5, dpi = 500, scale = 1.25)
+```
+
+```{r}
+p.data <- cle.no3$data %>%
+  mutate(site = "East", variable = "NO3-N")
+
+p.data <- clc.no3$data %>%
+  mutate(site = "Center", variable = "NO3-N") %>%
+  bind_rows(p.data)
+
+p.data <- clw.no3$data %>%
+  mutate(site = "West", variable = "NO3-N") %>%
+  bind_rows(p.data)
+
+p.data <- cle.tdn$data %>%
+  mutate(site = "East", variable = "TDN") %>%
+  bind_rows(p.data)
+
+p.data <- clc.tdn$data %>%
+  mutate(site = "Center", variable = "TDN") %>%
+  bind_rows(p.data)
+
+p.data <- clw.tdn$data %>%
+  mutate(site = "West", variable = "TDN") %>%
+  bind_rows(p.data)
+
+
+nit.plot <- ggplot(data = p.data, aes(x = DOY, y = ele.depth)) +
+  geom_raster(aes(fill = value), interpolate = F, hjust = 0.5, vjust = 0.5, na.rm = T) +
+  geom_contour(aes(z = value), color = "white", alpha = 0.4, size = 0.8) + 
+#  geom_point(data = df %>% filter(Site == site.id), aes(DOY, ele.depth), 
+ #            col = "grey50", bg = 'grey25', alpha= 0.7, size = 1.25, shape = 21) +
+  scale_fill_viridis(limits=c(2.5, 6.5), direction = 1, discrete = F, option = "D", 
+                     name = expression(paste("mg-N L"^-1))) +
+      #scale_y_reverse() + 
+      #ylim(375, 393) +
+  geom_point(data = chem.dat.plot, 
+             aes(DOY, ele.depth), 
+             col = "grey50", bg = 'grey25', alpha= 0.7, size = 1.25, shape = 21) +
+  xlim(170, 230) +
+  labs(x = "Day of Year (DOY)", y = "Elevation (m)") + 
+  facet_grid(variable ~ site) +
+      #geom_vline(xintercept = 174, col = "grey40") + 
+      #geom_vline(xintercept = 204, col = "grey40") +
+  theme_std() +
+  theme(panel.background = element_rect(fill = "grey50"),
+          panel.spacing = unit(0.75, "lines"),
+        strip.placement = "outside",
+        strip.switch.pad.grid = unit(0.75, "lines"), strip.text.x = element_blank()) +
+  geom_vline(xintercept = 174, col = "white")
+
+nit.plot$data$site <- factor(nit.plot$data$site, levels = c("West","Center", "East"))
+```
+
+```{r}
+ggsave(filename = "./supporting-files/nutrients.tiff",
+     plot_grid(phos.plot,nit.plot, align = "v", ncol = 1, labels = "auto", 
+               rel_heights = c(2,1.35)),
+     units = "in", width = 6.5, height = 7, dpi = 500, scale = 1.25)
+```
+
+
+```{r, fig.cap="Chemical profiles of nitrogen species across the west, centre, and east sampling locations. The white bar corresponds to the flood event on 23 Jun 2017.\\label{chemprofiles2}",  fig.width=7.5, fig.height = 7}
+p2 <- grid_arrange_shared_legend(clw.no3, clc.no3, cle.no3,
+                                clw.tdn, clc.tdn, cle.tdn,
+                                ncol = 3, nrow = 3, position='right', plot = T)
+
+#plot_grid(p,p2, align = "v", ncol = 1, labels = "auto")
+
+# ggsave(filename = "./supporting-files/nutrients.pdf",
+#      plot_grid(p,p2, align = "v", ncol = 1, labels = "auto"),
+#      units = "in", width = 6, height = 9, dpi = 300, scale = 2)
+# ggsave(filename = "./supporting-files/fig_nutrientprofiles.tiff", plot_grid(p,p2, align = "v", ncol = 1, labels = "auto"), units = "in", width = 7.5, height = 12, dpi = 300, scale = 1.6)
+```
+
+
+```{r, eval= F}
+epi.means.ord <- epi.means %>%
+  select(site:Chl, ele.depth)
+
+
+
+ord.dat <- merge.chem.dat %>%
+  filter(Depth == 2) %>%
+  left_join(epi.means.ord, by = c("Site" = "site", "Date" = "date", "DOY" = "DOY")) %>%
+  unite(site.index, Site, DOY, sep = "", remove = F) 
+
+ord.dat.long <- ord.dat %>% 
+  select(-c("ele.depth.x","ele.depth.y","bottom.elev", "DOC.13C","Depth")) %>%
+  gather(parameter, value, Fe:Chl) %>%
+  mutate(value = as.numeric(value)) %>%
+  na.omit()
+
+
+
+ggplot(data = ord.dat.long, aes(x = parameter, y = log10(value)), col = Site) +
+  geom_boxplot()
+
+var.interest <- c("site.index","Site","DOY","storage.10e6.m3_mean","airtemp.C_mean","wind.speed.km.hr_mean","wind.dir.deg_mean","precip.mm_sum", "res.time","temp.C","DO.mgl","pH","TDN","NO3","DOC","SRP","TDP","TP","SO4", "FNU", "Mn","Ca","K","Na","Mg","F","Cl", "NO2")
+
+var.interest2 <- c("site.index","Site","DOY","temp.C","DO.mgl","pH","TDN","NO3","DOC","SRP","TDP","TP","SO4", "FNU", "Mn","Ca","K","Na","Mg","F","Cl", "NO2")
+
+# need to add physical lake data inclusing photic zone depth, thermocline depth, and stability
+ord.dat.subset <- ord.dat[,var.interest2]
+ord.epi <- as.data.frame(ord.dat.subset)
+rownames(ord.epi) <- ord.epi$site.index
+ord.epi <- ord.epi[,-c(1:3)]
+ord.epi <- na.omit(ord.epi)
+#%>%
+ # select(site.index, Site, DOY, temp.C,DO.mgl,spc,pH,FNU,Chl,Cloud:Wind_S,
+  #       Fe:NO3,NO2:TP) 
+```
+
+```{r, eval = F}
+library(factoextra)
+epi.pca <- prcomp(ord.epi, scale = TRUE)
+fviz_eig(epi.pca)
+
+fviz_pca_ind(epi.pca,
+             col.ind = "cos2", # Color by the quality of representation
+             gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"),
+             repel = TRUE     # Avoid text overlapping
+             )
+fviz_pca_var(epi.pca,
+             col.var = "contrib", # Color by contributions to the PC
+             gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"),
+             repel = TRUE     # Avoid text overlapping
+             )
+fviz_pca_biplot(epi.pca, repel = TRUE,
+                col.var = "#2E9FDF", # Variables color
+                col.ind = "#696969"  # Individuals color
+                )
+groups <- as.factor(ord.dat$Site[-1])
+fviz_pca_ind(epi.pca,
+             col.ind = groups, # color by groups
+             palette = c("blue",  "red","green"),
+             addEllipses = TRUE, # Concentration ellipses
+             ellipse.type = "confidence",
+             legend.title = "Groups",
+             repel = TRUE
+             )
+## PCoA
+library(vegan)
+
+epi.dist <- vegdist(decostand(ord.epi, method = "standardize"), method = "euclidean")
+epi.pcoa <- cmdscale(epi.dist, k = 3, eig = T)
+
+
+pcoa.points <- as.data.frame(epi.pcoa$points)
+colnames(pcoa.points) <- c("a1","a2","a3")
+
+pcoa.data <- pcoa.points %>%
+  mutate(site.index = as.character(rownames(pcoa.points))) %>%
+  left_join(ord.dat %>% select(site.index, Site, DOY), by = "site.index")
+
+explainvar1 <- round(epi.pcoa$eig[1] / sum(epi.pcoa$eig), 3) * 100
+explainvar2 <- round(epi.pcoa$eig[2] / sum(epi.pcoa$eig), 3) * 100
+
+library(ggrepel)
+set.seed(42)
+
+p <- ggplot(data = pcoa.data, aes(x = a1, y = a2, 
+                                  col = Site, 
+                                  shape = Site)) +
+  #geom_line() +
+  geom_hline(yintercept = 0, "dashed", col = "grey80") +
+  geom_vline(xintercept = 0, "dashed", col = "grey80") +
+  geom_point(size = 3) +
+  labs(title = "PCoA",
+       subtitle = "",
+       caption = "",
+       x = paste("PCoA Axis 1 (", explainvar1, "%)"),
+       y = paste("PCoA Axis 2 (", explainvar2, "%)"),
+       col = "Site") +
+  scale_color_viridis(discrete = T, option = "D") +
+  scale_shape_discrete(solid = T)# + theme(legend.position = "NA") #+
+  #geom_text_repel(aes(label = site.index), size = 3.5)
+print(p)
+
+
+epi.perm <- adonis(data = ord.dat[-1,], 
+                   decostand(ord.epi[,-1], method = "standardize") ~ Site*DOY, method = "euclidean", permutations = 999)
+epi.perm
+```
+
+<stats> 
+```{r RMANOVA}
+
+chem.stats.epi <- chem.dat%>% filter(Depth ==2) %>%
+  mutate(DOY = yday(Date))
+
+chem.p.hypo <- chem.dat %>% filter(Depth !=2, Depth != 7) %>% 
+  select(Site, Date, SRP, TDP)
+
+colnames(chem.p.hypo) <- c("Site","Date","hypo.SRP","hypo.TDP")
+
+sonde.dat.test <- sonde.dat %>%
+  mutate(date = as.Date(date)) %>%
+  filter(depth.adj <= 2) %>%
+  group_by(site, date) %>%
+  summarise_all(funs(mean))
+
+res.stats <- res.dat %>% 
+  select(date, storage.10e6.m3_mean, discharge.m3.s_mean, res.time)
+
+stats.dat <- phyto.com %>%
+  filter(Phylum == "Cyanophyta") %>%
+  left_join(chem.stats.epi, by = c("date" = "Date", "DOY" = "DOY", "station" = "Site")) %>%
+  left_join(chem.p.hypo, by = c("station" = "Site", "date"="Date")) %>%
+  left_join(res.stats, by= c("date" = "date")) %>%
+  left_join(sonde.dat.test, by = c("station" = "site", "date"="date")) %>%
+  left_join(flow.merge, by = c("date" = "date"))
+
+stats.dat <- as.data.frame(stats.dat)
+stats.dat$station <- as.factor(stats.dat$station)
+stats.dat <- droplevels(stats.dat)
+
+test <- stats.dat %>%
+  mutate(DOY = as.factor(DOY))
+
+fit1 <- lme(data = stats.dat, 
+           total.biomass ~ DOY* SRP* mean.daily.flow * temp.C,  
+           random = ~ 1 | station, 
+           correlation = corAR1(form = ~ 1 | station, value = 0), 
+           method = "REML", na.action=na.omit)
+anova.lme(fit1, type = "marginal")
+
+
+fit.fixed <- gls(data = stats.dat, 
+           total.biomass ~ station*DOY*SRP*mean.daily.flow, method = "REML")
+anova(fit.fixed)
+
+```
+
+<old stuff below> 
+
+<comparison table>
+```{r chemRanges, include=FALSE}
+
+cap.text = paste("Quantified chemical paramater ranges across the sampled sites .\\label{chemtablecompare}")
+
+chem.compare.table <- chem.dat.epi %>% 
+  select(Site, TDN, NO3, NO2, NH4, TP, TDP, SRP, DOC, Fe:Br) %>% 
+  mutate(NH4 = as.numeric(as.character(NH4))) %>%
+  #gather(key = Parameter, value = Value, TDN:Br) %>%
+  group_by(Site) %>%
+  summarise_at(vars(TDN:Br), funs(mean = mean, sd = sd, min = min, max = max), 
+               na.rm = TRUE)
+
+pander(chem.compare.table, table.style = "grid", justify = "right", 
+       captext =cap.text)
+
+```
+
+
+\newpage
+
+```{r chemdattable}
+cap.text= "Chemical data for all sites, dates, and depths. All values are reported in mg/L except for the phosphorus species which are reported in ug/L.\\label{chemtable}"
+
+chem.dat.table<- chem.dat %>%
+  select(Site, Date, Depth, TDN, NO3, NO2, NH4, TP, TDP, SRP, DOC) 
+
+pander(chem.dat.table, justify = "right", 
+       caption =cap.text, table.continue = T)
+```
+
+
+
+
+
