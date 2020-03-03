@@ -1,0 +1,726 @@
+---
+title: "Data + statistical analyses and figures for Larsen et al. 2019"
+subtitle: "Conestogo Lake, Mapleton Township, Ontario"
+output: 
+  pdf_document:
+    latex_engine: xelatex
+    citation_package: natbib
+geometry: left = 2cm, right = 2cm, top = 2cm, bottom = 2cm
+fontsize: 12pt
+mainfont: HelveticaNeue Light
+bibliography: reportcitations
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r, include = F}
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE, 
+                      fig.height = 5.5)
+
+#, fig.pos = 'H'
+#results = "hide"
+
+# libraries
+library(tidyverse)
+library(akima)
+library(lubridate)
+library(padr)
+library(gridExtra)
+library(pander)
+library(RCurl)
+library(MBA)
+library(reshape)
+library(viridis)
+library(scales)
+library(cowplot)
+library(nlme)
+library(lemon)
+library('vegan'); library(ade4)
+library(lsmeans)
+
+
+# Plotting theme
+library(extrafont)
+font_import()
+#loadfonts(device="win")
+
+# load functions
+source("../database_Conestogo/src/themeformatting.R")
+source("../database_Conestogo/src/sondeinterpolationplot.R")
+source("../database_Conestogo/src/cheminterpolationplot.R")
+
+# set theme
+theme_set(theme_std(base_family = "", base_size = 11))
+#ggplot(mtcars, aes(x = cyl, y =mpg)) + geom_point() + theme_std()
+# tables shoud have decimal alignment
+```
+
+\vspace*{5cm}
+M.L. Larsen^1^, H. Baulch^2^, S. Schiff^3^,Dana F. Simon^4^, Sesbastien Sauve^4^, J. Venkiteswaran^1^
+
+\vspace*{5cm}
+^1^Department of Geography and Environmental Studies, Wilfrid Laurier University
+^2^School of Environment and Sustainability, Global Institute for Water Security, University of Saskatchewan 
+^3^Department of Earth and Environmental Sciences, University of Waterloo 
+^4^Department of Chemistry, Universite de Montreal
+
+\vspace*{3cm}
+Citation: 
+
+
+```{r Versions}
+cap.text = paste("This analysis was produced using", R.version.string, ".")
+
+```
+
+# Time-series statistics
+
+```{r chemdataImport}
+chem.dat <- read.csv("./data/con_chemistry_profiles.csv", header = T) %>%
+  mutate(Date = as.Date(Date))
+
+res.dat <- read.csv("./data/reservoirhistorical.csv", header = T)
+
+res.dat <- res.dat %>%
+  mutate(date = as.Date(date)) %>%
+  filter(date >= as.Date("2017-06-01"), date <= as.Date("2017-08-17"))
+
+#merge.chem.dat <- chem.dat %>%
+#  left_join(con.dat, by = c("Date" = "Date", "Site" = "Site")) %>%
+#  left_join(res.levels.daily, by = c("Date" = "date")) %>%
+#  mutate(bottom.elev = mean.value - Depth_M,
+#         ele.depth = mean.value - Depth, DOY = yday(Date)) %>%
+#  select(Site, Date, DOY, Depth:TP, Secchi, Air_Temp:mean.value, ele.depth)
+
+merge.chem.dat <- chem.dat %>%
+  left_join(res.dat, by = c("Date" = "date")) %>%
+  mutate(ele.depth = elevation.m_mean - Depth, DOY = yday(Date),
+         station = Site) 
+
+#head(chem.dat)
+
+chem.dat.epi <- chem.dat %>%
+  filter(Depth == 2) %>%
+  mutate(Date = as.Date(Date, format = "%y-%m-%d")) %>%
+  dplyr::select(Site:Date, Fe:TDN, DOC, TDP:TP)
+
+chem.dat.meta <- chem.dat %>%
+  filter(Depth <= 7, Depth != 2) %>%
+  mutate(Date = as.Date(Date, format = "%y-%m-%d")) %>%
+  dplyr::select(Site:Date, Fe:TDN, DOC, TDP:TP)
+
+chem.dat.hypo <- chem.dat %>%
+  filter(Depth != 7, Depth != 2) %>%
+  mutate(Date = as.Date(Date, format = "%y-%m-%d")) %>%
+  dplyr::select(Site:Date, Depth, Fe:TDN, DOC, TDP:TP)
+
+```
+
+
+```{r chem-RMANOVA-data}
+p.list <- c("SRP","TDP","TP", "Mn")
+pars.list <- c("DOC","NH4","NO2","NO3","TDN","Cl","SO4","Mg","Ca","Fe")
+epi.chem <- chem.dat %>%
+  mutate(DOY = yday(Date)) %>%
+  filter(Site != "clw", Depth == 2, DOY > 180) %>%
+  dplyr::select(Site, Date, DOY, p.list, pars.list, -NH4) 
+```
+
+## SRP
+```{r SRP-RMANOVA}
+# test model with random effects vs. just fixed effects
+model <- lme(data = epi.chem, 
+           SRP ~ DOY * Site,  
+           random = ~1|Site, 
+           correlation = corAR1(form = ~ DOY|Site), 
+           method = "REML", na.action=na.omit)
+
+model.fixed <- gls(SRP ~ DOY * Site,
+    correlation = corAR1(form = ~ DOY|Site),
+    data = epi.chem,
+    method = "REML")
+
+anova(model, model.fixed) ## There is no benefit to having site as a random variable.
+
+```
+
+```{r SRP-RMANOVA-table}
+pander(anova(model.fixed))
+```
+
+## TDP
+```{r TDP-RMANOVA}
+# test model with random effects vs. just fixed effects
+model <- lme(data = epi.chem, 
+           TDP ~ DOY * Site,  
+           random = ~1|Site, 
+           correlation = corAR1(form = ~ DOY|Site), 
+           method = "REML", na.action=na.omit)
+
+model.fixed <- gls(TDP ~ DOY * Site,
+    correlation = corAR1(form = ~ DOY|Site),
+    data = epi.chem,
+    method = "REML")
+
+anova(model, model.fixed) ## There is no benefit to having site as a random variable.
+
+```
+
+```{r TDP-RMANOVA-table}
+pander(anova(model.fixed))
+```
+
+## NO3
+```{r NO3-RMANOVA}
+
+# test model with random effects vs. just fixed effects
+model <- lme(data = epi.chem, 
+           NO3 ~ DOY * Site,  
+           random = ~1|Site, 
+           correlation = corAR1(form = ~ DOY|Site), 
+           method = "REML", na.action=na.omit)
+
+model.fixed <- gls(NO3 ~ DOY * Site,
+    correlation = corAR1(form = ~ DOY|Site),
+    data = epi.chem,
+    method = "REML")
+
+anova(model, model.fixed) ## There is no benefit to having site as a random variable.
+```
+
+```{r NO3-RMANOVA-table}
+pander(anova(model.fixed))
+```
+
+## TDN
+```{r TDN-RMANOVA}
+# test model with random effects vs. just fixed effects
+model <- lme(data = epi.chem, 
+           TDN ~ DOY * Site,  
+           random = ~1|Site, 
+           correlation = corAR1(form = ~ DOY|Site), 
+           method = "REML", na.action=na.omit)
+
+model.fixed <- gls(TDN ~ DOY * Site,
+    correlation = corAR1(form = ~ DOY|Site),
+    data = epi.chem,
+    method = "REML")
+
+anova(model, model.fixed) ## There is no benefit to having site as a random variable.
+
+```
+
+```{r TDN-RMANOVA-table}
+pander(anova(model.fixed))
+```
+
+
+## Chla
+
+```{r ttest}
+sonde.dat <- read.csv("./data/Conestogo_SondeProfiles_2017_processed.csv")
+
+epi.sonde <- sonde.dat %>%
+  filter(depth.adj.new == 2, DOY > 180)
+```
+
+```{r chla-RMANOVA}
+# test model with random effects vs. just fixed effects
+model <- lme(data = epi.sonde, 
+           chla_ug.L_avg ~ DOY * station,  
+           random = ~1|station, 
+           correlation = corAR1(form = ~ DOY|station), 
+           method = "REML", na.action=na.omit)
+
+model.fixed <- gls(chla_ug.L_avg ~ DOY * station,
+    correlation = corAR1(form = ~ DOY|station),
+    data = epi.sonde,
+    method = "REML")
+
+anova(model, model.fixed) ## There is no benefit to having site as a random variable.
+```
+
+```{r chla-RMANOVA-table}
+pander(anova(model.fixed))
+```
+
+## Dissolved Oxygen
+```{r DO-RMANOVA}
+# test model with random effects vs. just fixed effects
+model <- lme(data = epi.sonde, 
+           DO_mg.L_avg ~ DOY * station,  
+           random = ~1|station, 
+           correlation = corAR1(form = ~ DOY|station), 
+           method = "REML", na.action=na.omit)
+
+model.fixed <- gls(DO_mg.L_avg ~ DOY * station,
+    correlation = corAR1(form = ~ DOY|station),
+    data = epi.sonde,
+    method = "REML")
+
+anova(model, model.fixed) ## There is no benefit to having site as a random variable.
+
+```
+
+```{r DO-RMANOVA-table}
+pander(anova(model.fixed))
+```
+
+
+## Temperature
+```{r temp-RMANOVA}
+# test model with random effects vs. just fixed effects
+model <- lme(data = epi.sonde, 
+           temp_C_avg ~ DOY * station,  
+           random = ~1|station, 
+           correlation = corAR1(form = ~ DOY|station), 
+           method = "REML", na.action=na.omit)
+
+model.fixed <- gls(temp_C_avg ~ DOY * station,
+    correlation = corAR1(form = ~ DOY|station),
+    data = epi.sonde,
+    method = "REML")
+
+anova(model, model.fixed) ## There is no benefit to having site as a random variable.
+```
+
+```{r temp-RMANOVA-table}
+pander(anova(model.fixed))
+```
+
+## PAR 
+```{r}
+par.data <- read.csv("./data/par_merged.csv",header = T) %>%
+  mutate(date = as.Date(date, format = "%Y-%m-%d"),
+         DOY = yday(date)) %>%
+  filter(Depth == 2, site != "clw", DOY > 180) %>%
+  dplyr::select(site, date, DOY, PAR)
+
+```
+
+```{r PAR-RMANOVA}
+# test model with random effects vs. just fixed effects
+model <- lme(data = par.data, 
+           PAR ~ DOY * site,  
+           random = ~1|site, 
+           correlation = corAR1(form = ~ DOY|site), 
+           method = "REML", na.action=na.omit)
+
+model.fixed <- gls(PAR ~ DOY * site,
+    correlation = corAR1(form = ~ DOY|site),
+    data = par.data,
+    method = "REML")
+
+anova(model, model.fixed) ## There is no benefit to having site as a random variable.
+anova(model.fixed)
+
+```
+
+```{r PAR-RMANOVA-table}
+pander(anova(model.fixed))
+```
+
+
+## Table 1
+```{r}
+epi.sonde <- sonde.dat %>%
+  filter(depth.adj.new == 2, station != "clw", DOY > 180) %>%
+  group_by(station) %>%
+  summarize_at(vars(temp_C_avg:chla_ug.L_avg), list(mean = mean, min = min, max = max)) %>%
+  gather(key = parameter, value = result, temp_C_avg_mean:chla_ug.L_avg_max) %>%
+  separate(parameter, into = c("variable","metric"), sep = "_avg_") %>%
+  spread(key = metric, value = result)
+
+epi.chem <- chem.dat %>%
+  mutate(DOY = yday(Date))%>%
+  filter(Site != "clw", Depth == 2, DOY > 180) %>%
+  dplyr::select(Site, Date, p.list, pars.list, -NH4) %>%
+  group_by(Site) %>%
+  summarize_at(vars(SRP:Ca), list(mean = mean, min = min, max = max), na.rm = TRUE) %>%
+  gather(key = parameter, value = result, SRP_mean:Ca_max) %>%
+  separate(parameter, into = c("variable","metric"), sep = "_") %>%
+  spread(key = metric, value = result)
+
+
+m <- data.frame(epi.sonde[1:4,2],
+      paste0(round(epi.sonde$mean[5:8], digits = 2)," (", 
+             round(epi.sonde$min[5:8], digits = 2)," - ",
+             round(epi.sonde$max[5:8], digits = 2),")"),
+      paste0(round(epi.sonde$mean[1:4], digits = 2)," (", 
+             round(epi.sonde$min[1:4], digits = 2)," - ",
+             round(epi.sonde$max[1:4], digits = 2),")"))
+m2 <- data.frame(epi.chem$variable[1:12],
+                 paste0(round(epi.chem$mean[1:12], digits = 2)," (", 
+                        round(epi.chem$min[1:12], digits = 2), " - ", 
+                        round(epi.chem$max[1:12], digits = 2), ")"),
+                 paste0(round(epi.chem$mean[13:24], digits = 2)," (", 
+                        round(epi.chem$min[13:24], digits = 2), " - ", 
+                        round(epi.chem$max[13:24], digits = 2) , ")"))
+
+colnames(m) <- c("Parameter","Transitional", "Lacustrine")
+colnames(m2) <- c("Parameter","Transitional", "Lacustrine")
+
+m3 <- t(bind_rows(m, m2))
+colnames(m3) <- m3[1,]
+m3 <- m3[-1,]
+
+pander(t(m3))
+```
+
+
+### Phytoplankton community ordination
+
+<Environmental Matrix>
+
+```{r}
+
+con.dat <- read.csv("./data/con_met_data.csv", 
+                    header = T) %>% 
+  mutate(Date = as.Date(Date, format = "%d-%b-%y")) %>%
+  dplyr::select(Site:Secchi)
+
+#head(con.dat)
+
+res.dat <- read.csv("./data/reservoirhistorical.csv", 
+                    header = T) %>%
+  mutate(date = as.Date(date, format = "%Y-%m-%d")) %>%
+  dplyr::select(date:wind.speed.km.hr_mean,precip.mm_sum, res.time)
+
+# Create merged data file
+res.dat.merged <- con.dat %>%
+  left_join(res.dat, by = c("Date" = "date")) 
+```
+
+<EM: Sonde data| temp, pH, DO>
+```{r SondeDataImport}
+
+# sonde data for each site and date
+sonde.dat <- read.csv("./data/Conestogo_SondeProfiles_2017_processed.csv", header = T)
+
+# create a epi dataset
+sonde.epi <- sonde.dat %>%
+  filter(depth.adj.new == 2) %>%
+  dplyr::select(station:depth.adj.new, temp_C_avg:pH_avg) %>%
+  gather(key = parameter, value = result, temp_C_avg:pH_avg) %>%
+  mutate(parameter = paste0(parameter,"_epi")) 
+
+sonde.sed <- sonde.dat %>% 
+  group_by(station, date) %>% 
+  slice(n()) %>%
+  dplyr::select(station:depth.adj.new, temp_C_avg:pH_avg) %>%
+  gather(key = parameter, value = result, temp_C_avg:pH_avg) %>%
+  mutate(parameter = paste0(parameter,"_sed"))
+
+# lake physical characteristics at each site
+lake.phys <- read.csv("./data/Conestogo_WaterColumnMetrics_2017.csv", header = T) %>%
+  dplyr::select(station, datetime, thermo.depth, top, bottom, secchi_m) %>%
+  mutate(datetime = as.Date(datetime))
+
+sonde.env <- bind_rows(sonde.epi, sonde.sed) %>%
+  dplyr::select(station, date, parameter, result) %>%
+  spread(parameter, result) %>%
+  mutate(date = as.Date(date))
+
+```
+
+<EM: chemistry>
+
+```{r}
+chem.dat <- read.csv("./data/ConestogoLake_Chemistry_2017-2018.csv", header = T) %>%
+  mutate(date = as.Date(date)) %>%
+  filter(date < as.Date("2017-12-31"))
+
+parms.list <- unique(chem.dat$parmUnit)[-c(2,13,16,17,19,20,24,25)]
+```
+
+
+```{r}
+
+chem.epi <- chem.dat %>% filter(depth_m == 2, parmUnit %in% parms.list) %>%
+  mutate(parameter = paste0(parmUnit,"_epi")) %>%
+  dplyr::select(station, date, parameter, result)
+
+chem.sed <- chem.dat %>% 
+  filter(parmUnit %in% parms.list) %>%
+  group_by(station, date, parmUnit) %>% 
+  slice(n()) %>%
+  mutate(parameter = paste0(parmUnit,"_sed")) %>%
+  ungroup() %>%
+  dplyr::select(station, date, parameter, result)
+
+chem.env <- bind_rows(chem.epi, chem.sed) %>%
+  dplyr::select(station, date, parameter, result) %>%
+  spread(parameter, result)
+```
+
+
+```{r}
+env <- chem.env %>%
+  left_join(par.data, by = c("station"="site","date")) %>%
+  left_join(sonde.env,by = c("station","date")) %>%
+  left_join(lake.phys, by = c("station","date" = "datetime")) %>%
+  mutate(DOY = yday(date), site.code = paste0(station, DOY)) %>%
+  filter(station != "clw")
+```
+
+```{r}
+env.mat <- read.csv("./data/envmatrix.csv") 
+rownames(env.mat) <- env.mat$X
+env.mat <- env.mat[,-1]
+
+# standardize environmental matrix
+# given the diversity of measurements in the environmental matrix, we need
+# to standardize
+
+## Standardization of all environmental variables
+# Center and scale = standardize the variables (z-scores)
+env.z <- decostand(env.mat, "standardize")
+apply(env.z, 2, mean) # means = 0
+apply(env.z, 2, sd) # standard deviations = 1
+# Same standardization using the scale() function (which returns
+# a matrix)
+env.z <- as.data.frame(scale(env.mat))
+```
+
+
+```{r}
+
+sig.parms <-
+  c(
+    "SRP_ug.L_sed",
+    "TDP_ug.L_epi",
+    "pH_avg_sed",
+    "temp_C_avg_epi",
+    "PAR",
+    "SRP_ug.L_epi",
+    "DO_mg.L_avg_epi",
+    "TP_ug.L_epi",
+    "pH_avg_epi",
+    "temp_C_avg_sed"
+  )
+```
+
+```{r loadPhytoMatrix}
+spe.h <- read.csv("./data/phytomatrix_transformed.csv")
+rownames(spe.h) <- spe.h$X
+spe.h <- spe.h[,-1]
+
+```
+
+```{r RDA}
+
+constraints <- env %>% select(station, DOY) %>% filter(DOY >= 186)
+con.spe.rda <- rda(spe.h ~ DOY + station, constraints)
+anova.cca(con.spe.rda, permutations = how(nperm = 999))
+
+con.spe.rda <- rda(spe.h ~ ., env.z %>% select(sig.parms))
+anova.cca(con.spe.rda, permutations = how(nperm = 999))
+
+```
+
+
+### cyanobacteria/toxin correlation
+
+```{r, eval = T}
+cyano.biomass.mat <- phyto.merge %>%
+  filter(depth == 2, Phylum == "Cyanophyta", 
+         Family != ".", Description.Code == "PHYT", station != "clw") %>% # select epi species level cyanos
+  mutate(samp.no = paste0(station, DOY)) %>%
+  dplyr::select(samp.no, species.code, biomass.mg.m3) %>%
+  spread(species.code, biomass.mg.m3, fill = 0) %>% # create matrix of biomass data, fill NA's with 0
+  dplyr::select(samp.no,P1041,P1076,P1133, P1075)
+
+# only species that were visible in sample were counted. assume true 0's for everything else
+
+toxins.mat <- tox.dat %>%
+  filter(site != "clw") %>%
+  mutate(samp.no = paste0(site, DOY)) %>%
+  dplyr::select(samp.no, toxin, concentration) %>%
+  spread(toxin, concentration, fill = 0)
+
+# the toxin matrix has an extra date. Remove from matrix
+toxins.mat <- toxins.mat[-1,]
+
+merge.bio <- cyano.biomass.mat %>%
+  left_join(toxins.mat, by = "samp.no") %>%
+  mutate(site = as.factor(substr(samp.no, start = 1, stop = 3)),
+         DOY = as.numeric(substr(samp.no, start = 4, stop = 6)))
+
+pairs(merge.bio[,-c(1,8:9)])
+
+#rownames(cyano.biomass.mat) <- cyano.biomass.mat
+
+
+library(psych)
+res <- corr.test(cyano.biomass.mat[,-1], toxins.mat[,-1], method = "kendall")
+res
+
+pander(res$p)
+
+```
+
+```{r RMANOVA-cyanobiomass-bygroup}
+
+## did phytoplankton biomass change through time between sites?
+
+cyano.stats <- phyto.com %>% #filter(Phylum == "Cyanophyta") %>% 
+  filter(station != "clw") %>% 
+  droplevels() %>%
+  left_join(env.mat, by = c("station","DOY"))
+
+cyano.stats <- as.data.frame(cyano.stats)
+
+model <- lme(data = cyano.stats, 
+           total.biomass ~ group * DOY * station,  
+           random = ~1|group/station, 
+           correlation = corAR1(form = ~ DOY|group/station), 
+           method = "REML", na.action = na.omit)
+
+model.fixed <- gls(total.biomass ~ group * DOY * station,
+    correlation = corAR1(form = ~ DOY|group/station),
+    data = cyano.stats,
+    method = "REML")
+
+anova(model, model.fixed) ## There is no benefit to having site as a random variable.
+anova(model.fixed)
+
+# calculate the least square mean
+marginal = lsmeans(model.fixed,
+                   ~ group/station:DOY)
+
+cld(marginal,
+    alpha   = 0.05,
+    Letters = letters,     ### Use lower-case letters for .group
+    adjust  = "tukey")     ###  Tukey-adjusted comparisons
+
+
+# There is no difference between the sites through time.
+
+# Check the model fit
+histogram(residuals(model.fixed))
+
+ACF(model.fixed,
+    form = ~ DOY | Site)
+
+```
+
+
+```{r CYANOONLY-RMANOVA}
+cyano.stats <- phyto.com %>% filter(Phylum == "Cyanophyta", station != "clw", DOY > 180) %>% 
+  droplevels() %>%
+  left_join(env.mat, by = c("station","DOY"))
+cyano.stats <- as.data.frame(cyano.stats)
+
+fit.ar1 <- lme(data = cyano.stats, 
+           total.biomass ~ DOY * SRP_ug.L_epi * PAR * TDP_ug.L_epi *  temp_C_avg_epi,  
+           random = ~ 1|station, 
+           correlation = corAR1(form = ~ DOY|station, value = 0), 
+           method = "REML", na.action=na.omit)
+
+fit.arma <- lme(data = cyano.stats, 
+           total.biomass ~ DOY,  
+           random = ~1|station, 
+           correlation = corARMA(form = ~ DOY|station, p = 1, q = 1), 
+           method = "REML", na.action=na.omit)
+
+fit.arma2 <- lme(data = cyano.stats, 
+           total.biomass ~ DOY,  
+           random = ~1|station, 
+           correlation = corARMA(form = ~ DOY|station, p = 1, q = 2), 
+           method = "REML", na.action=na.omit)
+
+
+model <- lme(data = cyano.stats, 
+           total.biomass ~  DOY * SRP_ug.L_epi * temp_C_avg_epi,  
+           random = ~1|station, 
+           correlation = corAR1(form = ~ DOY|station), 
+           method = "REML", na.action = na.omit)
+
+model.fixed <- gls(total.biomass ~ DOY * SRP_ug.L_epi * temp_C_avg_epi,
+    correlation = corAR1(form = ~ DOY|station),
+    data = cyano.stats,
+    method = "REML")
+
+model.fixed <- gls(total.biomass ~ DOY * station,
+    correlation = corAR1(form = ~ DOY|station),
+    data = cyano.stats,
+    method = "REML")
+
+anova(model, model.fixed) ## There is no benefit to having site as a random variable.
+anova(model.fixed)
+
+# calculate the least square mean
+marginal = lsmeans(model.fixed,
+                   ~ station:DOY)
+
+cld(marginal,
+    alpha   = 0.05,
+    Letters = letters,     ### Use lower-case letters for .group
+    adjust  = "tukey")     ###  Tukey-adjusted comparisons
+
+
+# There is no difference between the sites through time.
+
+# Check the model fit
+histogram(residuals(model.fixed))
+
+ACF(model.fixed,
+    form = ~ DOY | Site)
+
+
+```
+
+
+```{r toxins-RMANOVA}
+tox.raw <- read.csv("./data/Conestogo_toxins-LOQ-MOD.csv") %>%
+  mutate(Sampling.date = as.Date(Sampling.date, format = "%Y-%m-%d"), 
+         DOY = yday(Sampling.date)) 
+
+tox.dat <- tox.raw %>%
+  dplyr::select(site, Sampling.date, DOY, Depth..m., MC.LR, MC.RR, MC.YR, AP.A) %>%
+  filter(site != "clw") %>%
+  gather(key = toxin, value = concentration, MC.LR:AP.A) %>%
+  mutate(concentration = concentration/1000)
+
+tox.dat$concentration[is.na(tox.dat$concentration)] <-0
+tox.dat$toxin <- as.factor(tox.dat$toxin)
+
+# test model with random effects vs. just fixed effects
+model <- lme(data = tox.dat, 
+           concentration ~ toxin * DOY * site,  
+           random = ~1|toxin/site, 
+           correlation = corAR1(form = ~ DOY|toxin/site), 
+           method = "REML", na.action=na.omit)
+
+model.fixed <- gls(concentration ~ toxin * DOY * site,
+    correlation = corAR1(form = ~ DOY|toxin/site),
+    data = tox.dat,
+    method = "REML")
+
+anova(model, model.fixed) ## There is no benefit to having site as a random variable.
+anova(model.fixed)
+
+# calculate the least square mean
+marginal = lsmeans(model.fixed,
+                   ~ toxin/site:DOY)
+
+cld(marginal,
+    alpha   = 0.05,
+    Letters = letters,     ### Use lower-case letters for .group
+    adjust  = "tukey")     ###  Tukey-adjusted comparisons
+
+
+# There is no difference between the sites through time.
+
+# Check the model fit
+histogram(residuals(model.fixed))
+
+ACF(model.fixed,
+    form = ~ DOY | Site)
+```
+
+```{r toxin-RMANOVA-table}
+pander(anova(model.fixed))
+```
+
+
