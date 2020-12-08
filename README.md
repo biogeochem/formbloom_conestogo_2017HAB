@@ -12,7 +12,7 @@
 
 
 
-**citation**: 
+**citation**: Megan L. Larsen, Helen M. Baulch, Sherry L. Schiff, Dana F. Simon, Sébastien Sauvé, and Jason J. Venkiteswaran. Extreme rainfall drives early onset cyanobacterial bloom. FACETS. 5(1): 899-920. https://doi.org/10.1139/facets-2020-0022
 
 
 
